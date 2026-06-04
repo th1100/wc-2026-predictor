@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>World Cup 2026 Predictor</title>
+<style>
+:root {
+  --bg: #fafaf7;
+  --card-bg: #ffffff;
+  --text: #1a1a1a;
+  --text-sec: #6b6b6b;
+  --text-tert: #9b9b9b;
+  --border: #e5e3dd;
+  --border-strong: #c9c9c0;
+  --primary: #1a7a3c;
+  --bg-secondary: #f5f3ee;
+  --bg-tertiary: #eae6dd;
+  --info-bg: #E6F1FB;
+  --info-text: #0C447C;
+  --success-bg: #EAF3DE;
+  --success-text: #27500A;
+  --warn-bg: #FAEEDA;
+  --warn-text: #633806;
+  --danger: #791F1F;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen,Ubuntu,sans-serif;font-size:14px;color:var(--text);background:var(--bg);min-height:100vh}
+.container{max-width:680px;margin:0 auto;padding:1rem;padding-bottom:4rem}
+.nav{display:flex;gap:1px;margin-bottom:1.5rem;border-bottom:0.5px solid var(--border);flex-wrap:wrap}
+.ntab{padding:8px 10px;font-size:12px;cursor:pointer;border:none;background:none;color:var(--text-sec);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;font-family:inherit}
+.ntab.on{color:var(--text);border-bottom:2px solid var(--text);font-weight:500}
+.pg{display:none}.pg.on{display:block}
+input[type=text],input[type=password],select{padding:6px 10px;border:0.5px solid var(--border-strong);border-radius:8px;background:var(--bg-secondary);color:var(--text);font-family:inherit;font-size:13px;outline:none}
+input[type=text]:focus,input[type=password]:focus,select:focus{border-color:var(--text)}
+input:disabled,select:disabled{opacity:0.55}
+button{padding:7px 14px;border:0.5px solid var(--border-strong);border-radius:8px;background:none;color:var(--text);cursor:pointer;font-family:inherit;font-size:13px}
+button:hover:not(:disabled){background:var(--bg-secondary)}
+button:active:not(:disabled){transform:scale(0.96)}
+button:disabled{opacity:0.4;cursor:default}
+button.primary{background:var(--text);color:var(--bg);border-color:var(--text)}
+button.primary:hover:not(:disabled){opacity:0.85}
+button.submit-btn{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600;padding:9px 20px}
+button.submit-btn:hover:not(:disabled){background:#0f5a2a}
+.card{background:var(--card-bg);border:0.5px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin-bottom:12px}
+.lbl{font-size:11px;color:var(--text-sec);text-transform:uppercase;letter-spacing:.06em;font-weight:500;margin:1rem 0 6px}
+.lbl:first-child{margin-top:0}
+.trow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--border)}
+.trow:last-child{border-bottom:none}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:500}
+.bg{background:var(--success-bg);color:var(--success-text)}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin:1rem 0}
+.stat{background:var(--bg-secondary);border-radius:8px;padding:10px;text-align:center}
+.stat-n{font-size:20px;font-weight:500}
+.stat-l{font-size:11px;color:var(--text-sec);margin-top:2px}
+.lb-row{display:grid;grid-template-columns:34px 1fr auto;gap:8px;align-items:center;padding:9px 0;border-bottom:0.5px solid var(--border)}
+.lb-row:last-child{border-bottom:none}
+.av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex-shrink:0}
+.av1{background:#FAC775;color:#633806}.av2{background:#D3D1C7;color:#2C2C2A}.av3{background:#F5C4B3;color:#4A1B0C}.avn{background:var(--bg-secondary);color:var(--text-sec)}
+.tab-sub{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:1rem}
+.stab{padding:5px 9px;font-size:12px;border:0.5px solid var(--border);border-radius:20px;background:none;color:var(--text-sec);cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:4px}
+.stab.on{background:var(--bg-secondary);color:var(--text);font-weight:500;border-color:var(--border-strong)}
+.stab.done{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:600}
+.stab.done.on{background:#0f5a2a;border-color:#0f5a2a}
+.adv{font-size:11px;padding:1px 5px;border-radius:4px;background:var(--info-bg);color:var(--info-text);margin-left:4px}
+.lock-banner{background:var(--warn-bg);color:var(--warn-text);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.submit-banner{background:var(--success-bg);color:var(--success-text);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:500;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.info-box{font-size:13px;color:var(--text-sec);background:var(--bg-secondary);padding:10px 12px;border-radius:8px;margin-bottom:12px;line-height:1.5}
+.pick-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:1rem}
+.pick-tab{padding:6px 12px;font-size:12px;border:0.5px solid var(--border);border-radius:20px;background:none;color:var(--text-sec);cursor:pointer;font-family:inherit}
+.pick-tab.on{background:var(--bg-secondary);color:var(--text);font-weight:500;border-color:var(--border-strong)}
+.ox2-row{display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:center;padding:9px 0;border-bottom:0.5px solid var(--border)}
+.ox2-row:last-child{border-bottom:none}
+.ox2-tm{font-size:12px;font-weight:500;line-height:1.3}
+.ox2-tm.r{text-align:right}
+.ox2-btns{display:flex;gap:5px}
+.ox2-btn{width:38px;height:32px;border-radius:8px;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid var(--border-strong);background:transparent;color:#8a8a82;padding:0;font-family:inherit}
+.ox2-btn:hover:not(:disabled){border-color:#999}
+.ox2-btn:disabled{cursor:default}
+.ko-match{border:0.5px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.ko-match.pending{opacity:0.4}
+.ko-teams-row{display:grid;grid-template-columns:1fr 32px 1fr;gap:6px;align-items:center}
+.ko-tm{font-size:12px;font-weight:500;padding:8px 10px;border-radius:6px;cursor:pointer;border:2px solid var(--border-strong);background:transparent;color:var(--text-sec);text-align:center;line-height:1.3}
+.ko-tm:hover:not(.disabled){border-color:#999;color:var(--text)}
+.ko-tm.sel{background:var(--primary);color:#fff;border-color:var(--primary);font-weight:700}
+.ko-tm.disabled{cursor:default}
+.ko-tm.tbd{color:var(--text-tert);font-style:italic;font-weight:400;font-size:11px;border-style:dashed}
+.ko-vs{text-align:center;font-size:11px;color:var(--text-sec)}
+.round-hdr{font-size:13px;font-weight:500;margin:1.25rem 0 8px}
+.pts-badge{font-size:11px;color:var(--text-sec);margin-left:6px;font-weight:400}
+.progress-bar{height:5px;background:var(--bg-secondary);border-radius:3px;margin-bottom:1rem}
+.progress-fill{height:5px;background:var(--primary);border-radius:3px;transition:width 0.3s}
+.legend-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--text-sec);margin-right:10px}
+.legend-box{width:22px;height:18px;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff}
+.admin-link{font-size:11px;color:var(--text-tert);text-align:center;margin-top:2rem;cursor:pointer;user-select:none;padding:8px}
+.admin-link:hover{color:var(--text-sec)}
+h1{font-size:22px;font-weight:500;margin-bottom:8px}
+.center{text-align:center}
+.hero{text-align:center;padding:2rem 0.5rem 1rem}
+.saving-dot{position:fixed;top:12px;right:12px;background:var(--success-bg);color:var(--success-text);padding:6px 12px;border-radius:20px;font-size:12px;font-weight:500;display:none;z-index:1000}
+.err-msg{color:var(--danger);font-size:13px;margin-top:8px}
+.ok-msg{color:var(--success-text);font-size:13px;margin-top:8px}
+code{background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-family:monospace;font-size:12px}
+.error-page{padding:3rem 1rem;text-align:center}
+.error-page h2{color:var(--danger);margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<div class="saving-dot" id="saving-indicator">Saving…</div>
+
+<div class="container">
+
+<!-- Configuration error page (shown if config.js not set) -->
+<div id="config-error" class="error-page" style="display:none">
+  <h2>⚠️ Setup required</h2>
+  <p>Please edit <code>config.js</code> and paste your Supabase URL and Publishable Key, then redeploy.</p>
+</div>
+
+<div id="app-content" style="display:none">
+
+<div class="nav" id="main-nav">
+  <button class="ntab on" onclick="nav('home')">Home</button>
+  <button class="ntab" onclick="nav('reg')">Sign up</button>
+  <button class="ntab" onclick="nav('pick')">My picks</button>
+  <button class="ntab" onclick="nav('board')">Leaderboard</button>
+  <button class="ntab" id="admin-tab" style="display:none" onclick="nav('admin')">Admin</button>
+</div>
+
+<!-- HOME -->
+<div id="pg-home" class="pg on">
+  <div class="hero">
+    <div style="font-size:40px;margin-bottom:10px">⚽</div>
+    <h1>World Cup 2026 Predictor</h1>
+    <p style="color:var(--text-sec);margin-bottom:1rem;line-height:1.6">Pick 1 / X / 2 for every group match, choose the knockout winners, and crown your champion.</p>
+    <div id="home-cd" style="font-size:13px;font-weight:500;color:var(--text-sec);margin-bottom:1.25rem"></div>
+    <div id="home-lock" style="display:none" class="lock-banner" style="justify-content:center">🔒 Predictions locked — tournament started!</div>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+      <button class="primary" onclick="nav('reg')">Sign up / Log in</button>
+      <button onclick="nav('board')">Leaderboard</button>
+    </div>
+  </div>
+  <div class="stat-grid">
+    <div class="stat"><div class="stat-n" id="h-players">0</div><div class="stat-l">Players</div></div>
+    <div class="stat"><div class="stat-n">72</div><div class="stat-l">Group matches</div></div>
+    <div class="stat"><div class="stat-n">32</div><div class="stat-l">KO matches</div></div>
+    <div class="stat"><div class="stat-n" id="h-st" style="font-size:14px">Open</div><div class="stat-l">Status</div></div>
+  </div>
+  <div class="card">
+    <div style="font-size:13px;font-weight:500;margin-bottom:10px">Scoring</div>
+    <div style="display:grid;grid-template-columns:1fr auto;font-size:13px">
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Group match correct 1/X/2</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">2 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Correct team advancing</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">2 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Round of 32 winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">2 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Round of 16 winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">3 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Quarter-final winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">4 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Semi-final winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">5 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Correct finalist (each)</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">5 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Correct World Cup winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">10 pts</div>
+      <div style="padding:4px 0;color:var(--text-sec)">Correct top scorer</div><div style="padding:4px 0;font-weight:500;text-align:right">8 pts</div>
+    </div>
+  </div>
+  <div class="admin-link" onclick="showAdmin()">·</div>
+</div>
+
+<!-- REGISTER / LOGIN -->
+<div id="pg-reg" class="pg">
+  <div id="reg-lock" style="display:none" class="lock-banner">🔒 Sign-up closed — tournament has started.</div>
+  <div class="card">
+    <div style="font-size:15px;font-weight:500;margin-bottom:4px">Create account</div>
+    <div style="font-size:13px;color:var(--text-sec);margin-bottom:14px">Remember your name and password to log back in.</div>
+    <div style="margin-bottom:10px"><div style="font-size:12px;color:var(--text-sec);margin-bottom:4px">Name</div><input type="text" id="reg-name" placeholder="e.g. John Smith" style="width:100%"></div>
+    <div style="margin-bottom:14px"><div style="font-size:12px;color:var(--text-sec);margin-bottom:4px">Password</div><input type="password" id="reg-pass" placeholder="min. 4 characters" style="width:100%"></div>
+    <button class="primary" id="reg-btn" onclick="register()">Create account</button>
+    <div id="reg-msg"></div>
+  </div>
+  <div class="card">
+    <div style="font-size:14px;font-weight:500;margin-bottom:12px">Already registered — log in</div>
+    <input type="text" id="li-name" placeholder="Your name" style="width:100%;margin-bottom:8px">
+    <input type="password" id="li-pass" placeholder="Password" style="width:100%">
+    <div style="margin-top:12px"><button onclick="doLogin()">Log in</button></div>
+    <div id="li-msg"></div>
+  </div>
+</div>
+
+<!-- PICKS -->
+<div id="pg-pick" class="pg">
+  <div id="pick-gate" style="display:none" class="card"><div style="font-size:14px;margin-bottom:8px">Please log in first</div><button onclick="nav('reg')">Log in / Sign up</button></div>
+  <div id="pick-main" style="display:none">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.75rem;flex-wrap:wrap">
+      <span style="font-size:15px;font-weight:500" id="pick-uname"></span>
+      <button style="margin-left:auto;font-size:12px" onclick="logout()">Log out</button>
+    </div>
+    <div style="margin-bottom:1rem">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-sec);margin-bottom:4px"><span id="prog-label">0 / 72 group picks</span><span id="prog-pct">0%</span></div>
+      <div class="progress-bar"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
+    </div>
+    <div id="pick-submitted-banner" style="display:none" class="submit-banner">✓ Picks submitted and locked. Viewing only.</div>
+    <div id="pick-lock-banner" style="display:none" class="lock-banner">🔒 Tournament started — picks locked.</div>
+    <div class="pick-tabs">
+      <button class="pick-tab on" onclick="pickTab('groups')">Group stage</button>
+      <button class="pick-tab" onclick="pickTab('knockout')">Knockout</button>
+      <button class="pick-tab" onclick="pickTab('special')">Special</button>
+    </div>
+    <div id="sec-groups">
+      <div class="tab-sub" id="pick-gtabs"></div>
+      <div id="pick-gcontent"></div>
+      <div id="pick-standings"></div>
+    </div>
+    <div id="sec-knockout" style="display:none">
+      <div class="info-box">Based on your group picks, tap a team to pick the winner. The bracket fills in automatically.</div>
+      <div id="pick-ko-content"></div>
+    </div>
+    <div id="sec-special" style="display:none">
+      <div class="card">
+        <div style="font-size:14px;font-weight:500;margin-bottom:10px">Special picks</div>
+        <div class="trow"><span style="flex:1;font-size:13px">World Cup winner</span><select id="pick-winner" style="width:165px"><option value="">-- Select --</option></select></div>
+        <div class="trow"><span style="flex:1;font-size:13px">Top scorer</span><input type="text" id="pick-topscorer" placeholder="e.g. Mbappé" style="width:165px"></div>
+      </div>
+    </div>
+    <div class="card" id="submit-card" style="margin-top:1rem;background:var(--bg-secondary);border:none">
+      <div style="font-size:14px;font-weight:500;margin-bottom:6px">Ready to lock in your picks?</div>
+      <div id="submit-status" style="font-size:12px;color:var(--text-sec);margin-bottom:10px">Changes auto-save — submit when you're done. Once submitted you can't edit anymore.</div>
+      <button class="submit-btn" id="submit-btn" onclick="submitPicks()">Submit my final picks</button>
+    </div>
+  </div>
+</div>
+
+<!-- LEADERBOARD -->
+<div id="pg-board" class="pg">
+  <div style="font-size:16px;font-weight:500;margin-bottom:4px">Leaderboard</div>
+  <div style="font-size:13px;color:var(--text-sec);margin-bottom:1rem">Updates when admin enters official results</div>
+  <div class="card" id="lb-list"><div style="font-size:13px;color:var(--text-sec)">Loading…</div></div>
+  <div class="card" id="lb-specials"></div>
+</div>
+
+<!-- ADMIN -->
+<div id="pg-admin" class="pg">
+  <div id="adm-gate" class="card">
+    <div style="font-size:14px;font-weight:500;margin-bottom:12px">Admin login</div>
+    <input type="password" id="adm-pw" placeholder="Password" style="width:100%;margin-bottom:10px">
+    <button onclick="adminIn()">Log in</button>
+    <div id="adm-msg"></div>
+    <div style="font-size:12px;color:var(--text-sec);margin-top:8px">Default password: <code>admin2026</code></div>
+  </div>
+  <div id="adm-main" style="display:none">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:1rem">
+      <span style="font-weight:500;font-size:15px">Admin panel</span>
+      <button style="margin-left:auto;font-size:12px" onclick="adminOut()">Log out</button>
+    </div>
+    <div class="card">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <button id="lock-btn" onclick="toggleLock()">Force lock</button>
+        <span style="font-size:12px" id="lock-lbl"></span>
+      </div>
+      <div style="font-size:12px;color:var(--text-sec);margin-bottom:4px">Change admin password:</div>
+      <div style="display:flex;gap:6px;margin-bottom:10px"><input type="text" id="adm-newpw" placeholder="New password" style="flex:1"><button onclick="changeAdmPw()">Change</button></div>
+      <div style="font-size:12px;color:var(--text-sec);margin-bottom:4px">Official top scorer:</div>
+      <div style="display:flex;gap:6px"><input type="text" id="adm-ts" style="flex:1" placeholder="Player name"><button onclick="setTS()">Set</button></div>
+    </div>
+    <div class="pick-tabs" style="margin-top:0.5rem">
+      <button class="pick-tab on" onclick="admTab('groups')">Group results</button>
+      <button class="pick-tab" onclick="admTab('knockout')">Knockout results</button>
+    </div>
+    <div id="adm-g-sec">
+      <div class="tab-sub" id="adm-gtabs"></div>
+      <div id="adm-gcontent"></div>
+      <div id="adm-gstandings"></div>
+    </div>
+    <div id="adm-ko-sec" style="display:none">
+      <div class="info-box">Tap the winning team for each match. Bracket updates automatically.</div>
+      <div id="adm-ko-content"></div>
+    </div>
+    <button class="primary" style="width:100%;margin-top:1rem" onclick="adminRecalc()">Recalculate scores</button>
+    <div id="adm-saved" style="font-size:13px;text-align:center;margin-top:8px"></div>
+  </div>
+</div>
+
+</div>
+</div>
+
+<!-- Supabase client library -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Configuration (URL and key) -->
+<script src="config.js"></script>
+<!-- Application logic -->
+<script src="app.js"></script>
+
+</body>
+</html>
