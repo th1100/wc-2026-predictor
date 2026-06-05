@@ -148,53 +148,122 @@ function calcStandings(res, g) {
 }
 
 function buildR32(gRes) {
-  const top = {}, sec = {}, thirds = [];
+  const top = {}, sec = {};
+  const thirds = [];
+
   Object.keys(GROUPS).forEach(g => {
     const st = calcStandings(gRes, g);
     top[g] = st[0] ? st[0].name : "?";
     sec[g] = st[1] ? st[1].name : "?";
-    if (st[2]) thirds.push({name: st[2].name, pts: st[2].pts});
+    if (st[2]) thirds.push({group: g, name: st[2].name, pts: st[2].pts});
   });
+
   thirds.sort((a,b) => b.pts - a.pts);
-  const t3 = thirds.slice(0,8).map(t => t.name);
-  const tb = i => t3[i] || "3rd place (TBD)";
+  const top8 = thirds.slice(0, 8);
+
+  // FIFA's official third-place slot constraints (Annex C)
+  const THIRD_SLOTS = {
+    m74: ['A','B','C','D','F'],
+    m77: ['C','D','F','G','H'],
+    m79: ['C','E','F','H','I'],
+    m80: ['E','H','I','J','K'],
+    m81: ['B','E','F','I','J'],
+    m82: ['A','E','H','I','J'],
+    m85: ['E','F','G','I','J'],
+    m87: ['D','E','I','J','L'],
+  };
+
+  // Backtracking to find a valid third-place team to slot assignment
+  const slotIds = Object.keys(THIRD_SLOTS);
+  const assignment = {};
+  const usedGroups = new Set();
+  function tryAssign(idx) {
+    if (idx === slotIds.length) return true;
+    const slotId = slotIds[idx];
+    const allowed = THIRD_SLOTS[slotId];
+    const candidates = top8.filter(t => allowed.includes(t.group) && !usedGroups.has(t.group));
+    for (const cand of candidates) {
+      assignment[slotId] = cand.name;
+      usedGroups.add(cand.group);
+      if (tryAssign(idx + 1)) return true;
+      delete assignment[slotId];
+      usedGroups.delete(cand.group);
+    }
+    const remaining = top8.length - usedGroups.size;
+    const slotsLeft = slotIds.length - idx;
+    if (remaining < slotsLeft) {
+      if (tryAssign(idx + 1)) return true;
+    }
+    return false;
+  }
+  tryAssign(0);
+
+  const tb = sid => assignment[sid] || `3rd ${THIRD_SLOTS[sid].join('/')} (TBD)`;
+  const teamOr = (val, label) => (val && val !== "?") ? val : label;
+
+  // FIFA's official R32 structure (matches 73-88)
   return [
-    {id:"r32_1", home:top.A,    away:sec.B},
-    {id:"r32_2", home:top.C,    away:sec.F},
-    {id:"r32_3", home:top.E,    away:tb(0)},
-    {id:"r32_4", home:top.G,    away:sec.H},
-    {id:"r32_5", home:top.I,    away:tb(1)},
-    {id:"r32_6", home:top.K,    away:sec.L},
-    {id:"r32_7", home:sec.A,    away:top.B},
-    {id:"r32_8", home:tb(2),    away:sec.C},
-    {id:"r32_9", home:top.D,    away:tb(3)},
-    {id:"r32_10",home:sec.E,    away:top.F},
-    {id:"r32_11",home:sec.G,    away:top.H},
-    {id:"r32_12",home:tb(4),    away:sec.I},
-    {id:"r32_13",home:top.J,    away:tb(5)},
-    {id:"r32_14",home:sec.K,    away:top.L},
-    {id:"r32_15",home:sec.D,    away:sec.J},
-    {id:"r32_16",home:tb(6),    away:tb(7)},
+    {id:"r32_1",  home: teamOr(sec.A, "Group A 2nd (TBD)"), away: teamOr(sec.B, "Group B 2nd (TBD)")},
+    {id:"r32_2",  home: teamOr(top.E, "Group E 1st (TBD)"), away: tb('m74')},
+    {id:"r32_3",  home: teamOr(top.F, "Group F 1st (TBD)"), away: teamOr(sec.C, "Group C 2nd (TBD)")},
+    {id:"r32_4",  home: teamOr(top.C, "Group C 1st (TBD)"), away: teamOr(sec.F, "Group F 2nd (TBD)")},
+    {id:"r32_5",  home: teamOr(top.I, "Group I 1st (TBD)"), away: tb('m77')},
+    {id:"r32_6",  home: teamOr(sec.E, "Group E 2nd (TBD)"), away: teamOr(sec.I, "Group I 2nd (TBD)")},
+    {id:"r32_7",  home: teamOr(top.A, "Group A 1st (TBD)"), away: tb('m79')},
+    {id:"r32_8",  home: teamOr(top.L, "Group L 1st (TBD)"), away: tb('m80')},
+    {id:"r32_9",  home: teamOr(top.D, "Group D 1st (TBD)"), away: tb('m81')},
+    {id:"r32_10", home: teamOr(top.G, "Group G 1st (TBD)"), away: tb('m82')},
+    {id:"r32_11", home: teamOr(sec.K, "Group K 2nd (TBD)"), away: teamOr(sec.L, "Group L 2nd (TBD)")},
+    {id:"r32_12", home: teamOr(top.H, "Group H 1st (TBD)"), away: teamOr(sec.J, "Group J 2nd (TBD)")},
+    {id:"r32_13", home: teamOr(top.B, "Group B 1st (TBD)"), away: tb('m85')},
+    {id:"r32_14", home: teamOr(top.J, "Group J 1st (TBD)"), away: teamOr(sec.H, "Group H 2nd (TBD)")},
+    {id:"r32_15", home: teamOr(top.K, "Group K 1st (TBD)"), away: tb('m87')},
+    {id:"r32_16", home: teamOr(sec.D, "Group D 2nd (TBD)"), away: teamOr(sec.G, "Group G 2nd (TBD)")},
   ];
 }
 
 function buildBracket(gRes, koRes) {
   const r32 = buildR32(gRes);
-  function pair(prev, pfx, i) {
-    const a = prev[i*2], b = prev[i*2+1];
-    return {
-      id: `${pfx}${i+1}`,
-      home: koRes[a.id] || `Winner of match ${a.id}`,
-      away: koRes[b.id] || `Winner of match ${b.id}`
-    };
+
+  // FIFA's official knockout pairings (matches 89-102)
+  const R16_PAIRS = [
+    {id:'r16_1', from:['r32_1', 'r32_3']},
+    {id:'r16_2', from:['r32_2', 'r32_5']},
+    {id:'r16_3', from:['r32_4', 'r32_6']},
+    {id:'r16_4', from:['r32_7', 'r32_8']},
+    {id:'r16_5', from:['r32_11', 'r32_12']},
+    {id:'r16_6', from:['r32_9', 'r32_10']},
+    {id:'r16_7', from:['r32_14', 'r32_16']},
+    {id:'r16_8', from:['r32_13', 'r32_15']},
+  ];
+  const QF_PAIRS = [
+    {id:'qf_1', from:['r16_2', 'r16_1']},
+    {id:'qf_2', from:['r16_5', 'r16_6']},
+    {id:'qf_3', from:['r16_3', 'r16_4']},
+    {id:'qf_4', from:['r16_7', 'r16_8']},
+  ];
+  const SF_PAIRS = [
+    {id:'sf_1', from:['qf_1', 'qf_2']},
+    {id:'sf_2', from:['qf_3', 'qf_4']},
+  ];
+
+  function buildRound(pairs) {
+    return pairs.map(p => ({
+      id: p.id,
+      home: koRes[p.from[0]] || `Winner of match ${p.from[0]}`,
+      away: koRes[p.from[1]] || `Winner of match ${p.from[1]}`,
+    }));
   }
-  const r16 = Array.from({length:8}, (_,i) => pair(r32, "r16_", i));
-  const qf  = Array.from({length:4}, (_,i) => pair(r16, "qf_",  i));
-  const sf  = Array.from({length:2}, (_,i) => pair(qf,  "sf_",  i));
+
+  const r16 = buildRound(R16_PAIRS);
+  const qf  = buildRound(QF_PAIRS);
+  const sf  = buildRound(SF_PAIRS);
+
   const sfW0 = koRes[sf[0].id] || null;
   const sfW1 = koRes[sf[1].id] || null;
   const sfL0 = sfW0 ? (sfW0 === sf[0].home ? sf[0].away : sf[0].home) : null;
   const sfL1 = sfW1 ? (sfW1 === sf[1].home ? sf[1].away : sf[1].home) : null;
+
   return {
     r32, r16, qf, sf,
     bronze: {id:"bronze", home: sfL0 || "SF1 loser", away: sfL1 || "SF2 loser"},
