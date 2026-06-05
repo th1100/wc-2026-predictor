@@ -587,19 +587,7 @@ function computeScores() {
     });
   }
 
-  // Final / champion / finalist
-  const finW = admKoRes["final"];
-  if (finW) {
-    const finM = realBracket.final;
-    allUsers.forEach(u => {
-      if (u.winner === finM.home || u.winner === finM.away) {
-        scoresByUser[u.id].spec += 5; scoresByUser[u.id].total += 5;
-      }
-      if (u.winner === finW) {
-        scoresByUser[u.id].spec += 10; scoresByUser[u.id].total += 10;
-      }
-    });
-  }
+  
 
   // Top scorer
   if (settings.top_scorer_result) {
@@ -627,12 +615,14 @@ function renderBoard() {
   lb.innerHTML = sorted.map((u,i) => {
     const sc = scoresByUser[u.id] || {total:0,group:0,adv:0,ko:0,spec:0};
     const subBadge = u.submitted ? '<span class="badge bg" style="margin-left:6px;font-size:10px">submitted</span>' : "";
-    return `<div class="lb-row"><div class="av ${i<3?rc[i]:"avn"}">${i<3?ri[i]:i+1}</div><div><div style="font-size:14px;font-weight:500">${u.name}${subBadge}</div><div style="font-size:11px;color:var(--text-sec);margin-top:1px">Group: ${sc.group} · Adv: ${sc.adv} · KO: ${sc.ko} · Specials: ${sc.spec}</div><div style="font-size:11px;color:var(--text-tert)">Champion: ${u.winner || "—"} · Top scorer: ${u.top_scorer || "—"}</div></div><div style="text-align:right"><div style="font-size:18px;font-weight:500">${sc.total}</div><div style="font-size:11px;color:var(--text-sec)">pts</div></div></div>`;
+   const champPick = (allUserKoPicks[u.id] || {})["final"];
+    return `<div class="lb-row"><div class="av ${i<3?rc[i]:"avn"}">${i<3?ri[i]:i+1}</div><div><div style="font-size:14px;font-weight:500">${u.name}${subBadge}</div><div style="font-size:11px;color:var(--text-sec);margin-top:1px">Group: ${sc.group} · Adv: ${sc.adv} · KO: ${sc.ko} · Specials: ${sc.spec}</div><div style="font-size:11px;color:var(--text-tert)">Champion pick: ${champPick || "—"} · Top scorer: ${u.top_scorer || "—"}</div></div><div style="text-align:right"><div style="font-size:18px;font-weight:500">${sc.total}</div><div style="font-size:11px;color:var(--text-sec)">pts</div></div></div>`;
   }).join("");
 
   const wc = {}, tc = {};
   allUsers.forEach(u => {
-    if (u.winner) wc[u.winner] = (wc[u.winner] || 0) + 1;
+const champ = (allUserKoPicks[u.id] || {})["final"];
+    if (champ) wc[champ] = (wc[champ] || 0) + 1;
     if (u.top_scorer) { const k = u.top_scorer.toLowerCase(); tc[k] = (tc[k] || 0) + 1; }
   });
   document.getElementById("lb-specials").innerHTML =
@@ -657,7 +647,40 @@ async function adminIn() {
   document.getElementById("adm-gate").style.display = "none";
   document.getElementById("adm-main").style.display = "";
   await loadAdminResults();
+  await loadAdminUsers();
   renderAdm();
+}
+
+async function loadAdminUsers() {
+  if (!isAdm || !sb) return;
+  try {
+    const {data} = await sb.from("users").select("*").order("created_at", {ascending: true});
+    const list = document.getElementById("adm-user-list");
+    const countEl = document.getElementById("adm-user-count");
+    if (!data || !data.length) {
+      list.innerHTML = '<div style="font-size:13px;color:var(--text-sec)">No players yet.</div>';
+      countEl.textContent = "0";
+      return;
+    }
+    countEl.textContent = data.length;
+    list.innerHTML = data.map(u => {
+      const safeName = u.name.replace(/'/g, "\\'");
+      const sub = u.submitted ? ' <span class="badge bg" style="font-size:10px">submitted</span>' : '';
+      return `<div class="trow">
+        <div style="flex:1;font-size:13px;font-weight:500">${u.name}${sub}</div>
+        <button onclick="deleteUser('${u.id}','${safeName}')" style="font-size:11px;padding:4px 10px;color:var(--danger);border-color:var(--danger);background:#fff">Delete</button>
+      </div>`;
+    }).join("");
+  } catch (e) { console.error("loadAdminUsers", e); }
+}
+
+async function deleteUser(id, name) {
+  if (!confirm(`Delete player "${name}"?\n\nThis will permanently remove all their picks. This cannot be undone.`)) return;
+  showSaving();
+  try {
+    await sb.from("users").delete().eq("id", id);
+    await loadAdminUsers();
+  } catch (e) { alert("Error deleting: " + (e.message || e)); }
 }
 function adminOut() {
   isAdm = false;
