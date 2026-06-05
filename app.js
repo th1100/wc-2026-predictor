@@ -1,18 +1,15 @@
 // =============================================================
-// World Cup 2026 Predictor — Application Logic
+// World Cup 2026 Predictor — Application Logic (Ranking style)
 // =============================================================
 
-// --- Config check (defer until gate passed) ---
 function configIsValid() {
   return !!SUPABASE_URL && !SUPABASE_URL.includes("PASTE_YOUR") && !!SUPABASE_KEY && !SUPABASE_KEY.includes("PASTE_YOUR");
 }
 
-// --- Supabase client ---
 const sb = (typeof SUPABASE_URL !== "undefined" && !SUPABASE_URL.includes("PASTE"))
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)
   : null;
 
-// --- Constants ---
 const GROUPS = {
   A:["Mexico","South Africa","South Korea","Czechia"],
   B:["Canada","Bosnia & Herzegovina","Qatar","Switzerland"],
@@ -29,184 +26,165 @@ const GROUPS = {
 };
 const ALL_TEAMS = Object.values(GROUPS).flat();
 const LOCK_TIME = new Date(LOCK_TIME_ISO).getTime();
-const KO_PTS = {r32:2, r16:3, qf:4, sf:5, bronze:4, final:10};
-const SEL_STYLE = {
-  "1":"background:#1a7a3c;color:#fff;border-color:#1a7a3c",
-  "x":"background:#1f6fc4;color:#fff;border-color:#1f6fc4",
-  "2":"background:#c77400;color:#fff;border-color:#c77400"
-};
+const KO_PTS = {r32:2, r16:3, qf:4, sf:5, bronze:4, final:20};
+const GROUP_POS_PTS = [3, 2, 1, 0];
+const THIRD_ADV_PT = 1;
+const SCORER_PT = 8;
 
-// --- State ---
-let CU = null;                  // current user object {id, name, ...}
-let userPicks = {};             // {match_id: '1'/'x'/'2'}
-let userKoPicks = {};           // {match_id: 'team_name'}
-let allUsers = [];              // for leaderboard
-let allUserPicks = {};          // {user_id: {match_id: pick}}
-let allUserKoPicks = {};        // {user_id: {match_id: team}}
-let admGroupRes = {};           // {match_id: '1'/'x'/'2'}
-let admKoRes = {};              // {match_id: 'team_name'}
-let settings = {force_locked:"false", top_scorer_result:"", admin_password:"admin2026"};
-let scoresByUser = {};          // computed
-let isAdm = false;
-let vG = "A", aG = "A";
-let pickSec = "groups", admSec = "groups";
-let adminClickCount = 0;
+// State
+let CU = null;
+let userPicks = {};
+let userKoPicks = {};
+let userExtras = {};
+let allUsers = [];
+let allUserPicks = {};
+let allUserKoPicks = {};
+let allUserExtras = {};
+let admGroupRes = {};
+let admKoRes = {};
+let admExtras = {};
+let settings = {};
+let scoresByUser = {};
+let vG = "A";
+let aG = "A";
+let adminClicks = 0;
 
-// --- Helpers ---
 function isTimeLocked() { return settings.force_locked === "true" || Date.now() >= LOCK_TIME; }
 function isUserLocked() { return isTimeLocked() || (CU && CU.submitted); }
 
-function gMatches(g) {
-  const t = GROUPS[g], m = [];
-  for (let i = 0; i < t.length; i++) for (let j = i+1; j < t.length; j++)
-    m.push({id: `${g}${i}${j}`, home: t[i], away: t[j]});
-  return m;
-}
-function allGM() { return Object.keys(GROUPS).flatMap(g => gMatches(g)); }
-function groupComplete(picks, g) { return gMatches(g).every(m => picks[m.id]); }
-
 function showSaving() {
   const el = document.getElementById("saving-indicator");
+  if (!el) return;
   el.style.display = "block";
-  clearTimeout(window._savingTO);
-  window._savingTO = setTimeout(() => el.style.display = "none", 800);
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = "none"; }, 700);
 }
 
-// --- Data loading ---
+// ====== DATA LOADERS ======
+
 async function loadSettings() {
   if (!sb) return;
   try {
-    const {data} = await sb.from("settings").select("*");
-    if (data) {
-      const s = {};
-      data.forEach(r => s[r.key] = r.value);
-      settings = {...settings, ...s};
-    }
+    const { data } = await sb.from("settings").select("*");
+    settings = {};
+    (data || []).forEach(r => settings[r.key] = r.value);
   } catch (e) { console.error("loadSettings", e); }
 }
+
 async function loadAdminResults() {
   if (!sb) return;
   try {
-    const [g, k] = await Promise.all([
+    const [g, k, e] = await Promise.all([
       sb.from("admin_group_results").select("*"),
       sb.from("admin_ko_results").select("*"),
+      sb.from("admin_extras").select("*")
     ]);
-    admGroupRes = {};
-    (g.data || []).forEach(r => admGroupRes[r.match_id] = r.result);
-    admKoRes = {};
-    (k.data || []).forEach(r => admKoRes[r.match_id] = r.winner);
-  } catch (e) { console.error("loadAdminResults", e); }
+    admGroupRes = {}; (g.data || []).forEach(r => admGroupRes[r.match_id] = r.result);
+    admKoRes = {}; (k.data || []).forEach(r => admKoRes[r.match_id] = r.winner);
+    admExtras = {}; (e.data || []).forEach(r => admExtras[r.key] = r.value);
+  } catch (er) { console.error("loadAdminResults", er); }
 }
+
 async function loadUserPicks() {
   if (!sb || !CU) return;
   try {
-    const [p, k] = await Promise.all([
+    const [gp, kp, ex] = await Promise.all([
       sb.from("group_picks").select("*").eq("user_id", CU.id),
       sb.from("ko_picks").select("*").eq("user_id", CU.id),
+      sb.from("extras").select("*").eq("user_id", CU.id)
     ]);
-    userPicks = {};
-    (p.data || []).forEach(r => userPicks[r.match_id] = r.pick);
-    userKoPicks = {};
-    (k.data || []).forEach(r => userKoPicks[r.match_id] = r.team);
+    userPicks = {}; (gp.data || []).forEach(r => userPicks[r.match_id] = r.pick);
+    userKoPicks = {}; (kp.data || []).forEach(r => userKoPicks[r.match_id] = r.pick);
+    userExtras = {}; (ex.data || []).forEach(r => userExtras[r.key] = r.value);
   } catch (e) { console.error("loadUserPicks", e); }
 }
+
 async function loadAllForLeaderboard() {
   if (!sb) return;
   try {
-    const [u, gp, kp] = await Promise.all([
-      sb.from("users").select("*"),
+    const [users, gp, kp, ex] = await Promise.all([
+      sb.from("users").select("id,name,submitted"),
       sb.from("group_picks").select("*"),
       sb.from("ko_picks").select("*"),
+      sb.from("extras").select("*")
     ]);
-    allUsers = u.data || [];
-    allUserPicks = {};
-    (gp.data || []).forEach(r => {
+    allUsers = users.data || [];
+    allUserPicks = {}; (gp.data || []).forEach(r => {
       if (!allUserPicks[r.user_id]) allUserPicks[r.user_id] = {};
       allUserPicks[r.user_id][r.match_id] = r.pick;
     });
-    allUserKoPicks = {};
-    (kp.data || []).forEach(r => {
+    allUserKoPicks = {}; (kp.data || []).forEach(r => {
       if (!allUserKoPicks[r.user_id]) allUserKoPicks[r.user_id] = {};
-      allUserKoPicks[r.user_id][r.match_id] = r.team;
+      allUserKoPicks[r.user_id][r.match_id] = r.pick;
+    });
+    allUserExtras = {}; (ex.data || []).forEach(r => {
+      if (!allUserExtras[r.user_id]) allUserExtras[r.user_id] = {};
+      allUserExtras[r.user_id][r.key] = r.value;
     });
   } catch (e) { console.error("loadAllForLeaderboard", e); }
 }
 
-// --- Standings & bracket logic ---
-function calcStandings(res, g, tbOrder) {
-  const teams = GROUPS[g].map(n => ({name:n, pts:0, w:0, d:0, l:0}));
-  const idx = {};
-  teams.forEach((t,i) => idx[t.name] = i);
-  gMatches(g).forEach(m => {
-    const r = res[m.id]; if (!r) return;
-    const th = teams[idx[m.home]], ta = teams[idx[m.away]];
-    if (r === "1") { th.pts+=3; th.w++; ta.l++; }
-    else if (r === "2") { ta.pts+=3; ta.w++; th.l++; }
-    else if (r === "x") { th.pts++; ta.pts++; th.d++; ta.d++; }
-  });
+// ====== CORE LOGIC ======
 
-  teams.sort((a,b) => b.pts - a.pts);
-
-  function userOrderCompare(a, b) {
-    if (!tbOrder || !tbOrder.length) return a.name.localeCompare(b.name);
-    const aIdx = tbOrder.indexOf(a.name);
-    const bIdx = tbOrder.indexOf(b.name);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
-    return a.name.localeCompare(b.name);
-  }
-
-  const sorted = [];
-  let i = 0;
-  while (i < teams.length) {
-    let j = i;
-    while (j + 1 < teams.length && teams[j+1].pts === teams[i].pts) j++;
-    if (j > i) {
-      const tied = teams.slice(i, j+1);
-      const h2h = {};
-      tied.forEach(t => h2h[t.name] = 0);
-      const tiedNames = new Set(tied.map(t => t.name));
-      gMatches(g).forEach(m => {
-        if (!tiedNames.has(m.home) || !tiedNames.has(m.away)) return;
-        const r = res[m.id]; if (!r) return;
-        if (r === "1") h2h[m.home] += 3;
-        else if (r === "2") h2h[m.away] += 3;
-        else { h2h[m.home] += 1; h2h[m.away] += 1; }
-      });
-      tied.sort((a, b) => {
-        if (h2h[b.name] !== h2h[a.name]) return h2h[b.name] - h2h[a.name];
-        return userOrderCompare(a, b);
-      });
-      tied.forEach(t => t.h2hPts = h2h[t.name]);
-      sorted.push(...tied);
-    } else {
-      teams[i].h2hPts = 0;
-      sorted.push(teams[i]);
-    }
-    i = j + 1;
-  }
-  return sorted;
+function getRanking(picks, g) {
+  return [
+    picks["rank_" + g + "_1"] || null,
+    picks["rank_" + g + "_2"] || null,
+    picks["rank_" + g + "_3"] || null,
+    picks["rank_" + g + "_4"] || null,
+  ];
 }
 
-function buildR32(gRes) {
-  const top = {}, sec = {};
+function getDisplayOrder(picks, g) {
+  const teams = GROUPS[g];
+  const ranking = getRanking(picks, g);
+  if (ranking.every(t => t !== null)) return ranking.slice();
+  const used = new Set(ranking.filter(t => t !== null));
+  const result = ranking.filter(t => t !== null);
+  teams.forEach(t => { if (!used.has(t)) result.push(t); });
+  return result;
+}
+
+function isGroupComplete(picks, g) {
+  return getRanking(picks, g).every(t => t !== null);
+}
+
+function allGroupsComplete(picks) {
+  return Object.keys(GROUPS).every(g => isGroupComplete(picks, g));
+}
+
+function getThirds(picks) {
   const thirds = [];
-
   Object.keys(GROUPS).forEach(g => {
-    const st = calcStandings(gRes, g);
-    top[g] = st[0] ? st[0].name : "?";
-    sec[g] = st[1] ? st[1].name : "?";
-    if (st[2]) thirds.push({group: g, name: st[2].name, pts: st[2].pts});
+    const t = picks["rank_" + g + "_3"];
+    if (t) thirds.push({group: g, name: t});
+  });
+  return thirds;
+}
+
+function getAdvancingThirds(picks) {
+  const csv = picks.thirds_advancing || "";
+  if (!csv) return [];
+  return csv.split(",").filter(s => s.length > 0);
+}
+
+function isThirdsComplete(picks) {
+  return getAdvancingThirds(picks).length === 8;
+}
+
+function buildR32(picks) {
+  const top = {}, sec = {};
+  const thirdsByName = {};
+  Object.keys(GROUPS).forEach(g => {
+    top[g] = picks["rank_" + g + "_1"] || null;
+    sec[g] = picks["rank_" + g + "_2"] || null;
+    const th = picks["rank_" + g + "_3"];
+    if (th) thirdsByName[th] = g;
   });
 
-  thirds.sort((a,b) => {
-    if (b.pts !== a.pts) return b.pts - a.pts;
-    return a.name.localeCompare(b.name);
-  });
-  const top8 = thirds.slice(0, 8);
+  const advThirds = getAdvancingThirds(picks);
+  const top8 = advThirds.map(name => ({group: thirdsByName[name], name})).filter(t => t.group);
 
-  // FIFA's official third-place slot constraints (Annex C)
   const THIRD_SLOTS = {
     m74: ['A','B','C','D','F'],
     m77: ['C','D','F','G','H'],
@@ -215,10 +193,9 @@ function buildR32(gRes) {
     m81: ['B','E','F','I','J'],
     m82: ['A','E','H','I','J'],
     m85: ['E','F','G','I','J'],
-    m87: ['D','E','I','J','L'],
+    m87: ['D','E','I','J','L']
   };
 
-  // Backtracking to find a valid third-place team to slot assignment
   const slotIds = Object.keys(THIRD_SLOTS);
   const assignment = {};
   const usedGroups = new Set();
@@ -243,34 +220,31 @@ function buildR32(gRes) {
   }
   tryAssign(0);
 
-  const tb = sid => assignment[sid] || `3rd ${THIRD_SLOTS[sid].join('/')} (TBD)`;
-  const teamOr = (val, label) => (val && val !== "?") ? val : label;
+  const tb = sid => assignment[sid] || ("3rd " + THIRD_SLOTS[sid].join('/') + " (TBD)");
+  const tor = (val, label) => val || label;
 
-  // FIFA's official R32 structure (matches 73-88)
   return [
-    {id:"r32_1",  home: teamOr(sec.A, "Group A 2nd (TBD)"), away: teamOr(sec.B, "Group B 2nd (TBD)")},
-    {id:"r32_2",  home: teamOr(top.E, "Group E 1st (TBD)"), away: tb('m74')},
-    {id:"r32_3",  home: teamOr(top.F, "Group F 1st (TBD)"), away: teamOr(sec.C, "Group C 2nd (TBD)")},
-    {id:"r32_4",  home: teamOr(top.C, "Group C 1st (TBD)"), away: teamOr(sec.F, "Group F 2nd (TBD)")},
-    {id:"r32_5",  home: teamOr(top.I, "Group I 1st (TBD)"), away: tb('m77')},
-    {id:"r32_6",  home: teamOr(sec.E, "Group E 2nd (TBD)"), away: teamOr(sec.I, "Group I 2nd (TBD)")},
-    {id:"r32_7",  home: teamOr(top.A, "Group A 1st (TBD)"), away: tb('m79')},
-    {id:"r32_8",  home: teamOr(top.L, "Group L 1st (TBD)"), away: tb('m80')},
-    {id:"r32_9",  home: teamOr(top.D, "Group D 1st (TBD)"), away: tb('m81')},
-    {id:"r32_10", home: teamOr(top.G, "Group G 1st (TBD)"), away: tb('m82')},
-    {id:"r32_11", home: teamOr(sec.K, "Group K 2nd (TBD)"), away: teamOr(sec.L, "Group L 2nd (TBD)")},
-    {id:"r32_12", home: teamOr(top.H, "Group H 1st (TBD)"), away: teamOr(sec.J, "Group J 2nd (TBD)")},
-    {id:"r32_13", home: teamOr(top.B, "Group B 1st (TBD)"), away: tb('m85')},
-    {id:"r32_14", home: teamOr(top.J, "Group J 1st (TBD)"), away: teamOr(sec.H, "Group H 2nd (TBD)")},
-    {id:"r32_15", home: teamOr(top.K, "Group K 1st (TBD)"), away: tb('m87')},
-    {id:"r32_16", home: teamOr(sec.D, "Group D 2nd (TBD)"), away: teamOr(sec.G, "Group G 2nd (TBD)")},
+    {id:"r32_1",  home: tor(sec.A, "Group A 2nd (TBD)"), away: tor(sec.B, "Group B 2nd (TBD)")},
+    {id:"r32_2",  home: tor(top.E, "Group E 1st (TBD)"), away: tb('m74')},
+    {id:"r32_3",  home: tor(top.F, "Group F 1st (TBD)"), away: tor(sec.C, "Group C 2nd (TBD)")},
+    {id:"r32_4",  home: tor(top.C, "Group C 1st (TBD)"), away: tor(sec.F, "Group F 2nd (TBD)")},
+    {id:"r32_5",  home: tor(top.I, "Group I 1st (TBD)"), away: tb('m77')},
+    {id:"r32_6",  home: tor(sec.E, "Group E 2nd (TBD)"), away: tor(sec.I, "Group I 2nd (TBD)")},
+    {id:"r32_7",  home: tor(top.A, "Group A 1st (TBD)"), away: tb('m79')},
+    {id:"r32_8",  home: tor(top.L, "Group L 1st (TBD)"), away: tb('m80')},
+    {id:"r32_9",  home: tor(top.D, "Group D 1st (TBD)"), away: tb('m81')},
+    {id:"r32_10", home: tor(top.G, "Group G 1st (TBD)"), away: tb('m82')},
+    {id:"r32_11", home: tor(sec.K, "Group K 2nd (TBD)"), away: tor(sec.L, "Group L 2nd (TBD)")},
+    {id:"r32_12", home: tor(top.H, "Group H 1st (TBD)"), away: tor(sec.J, "Group J 2nd (TBD)")},
+    {id:"r32_13", home: tor(top.B, "Group B 1st (TBD)"), away: tb('m85')},
+    {id:"r32_14", home: tor(top.J, "Group J 1st (TBD)"), away: tor(sec.H, "Group H 2nd (TBD)")},
+    {id:"r32_15", home: tor(top.K, "Group K 1st (TBD)"), away: tb('m87')},
+    {id:"r32_16", home: tor(sec.D, "Group D 2nd (TBD)"), away: tor(sec.G, "Group G 2nd (TBD)")}
   ];
 }
 
-function buildBracket(gRes, koRes) {
-  const r32 = buildR32(gRes);
-
-  // FIFA's official knockout pairings (matches 89-102)
+function buildBracket(picks, koRes) {
+  const r32 = buildR32(picks);
   const R16_PAIRS = [
     {id:'r16_1', from:['r32_1', 'r32_3']},
     {id:'r16_2', from:['r32_2', 'r32_5']},
@@ -279,36 +253,32 @@ function buildBracket(gRes, koRes) {
     {id:'r16_5', from:['r32_11', 'r32_12']},
     {id:'r16_6', from:['r32_9', 'r32_10']},
     {id:'r16_7', from:['r32_14', 'r32_16']},
-    {id:'r16_8', from:['r32_13', 'r32_15']},
+    {id:'r16_8', from:['r32_13', 'r32_15']}
   ];
   const QF_PAIRS = [
     {id:'qf_1', from:['r16_2', 'r16_1']},
     {id:'qf_2', from:['r16_5', 'r16_6']},
     {id:'qf_3', from:['r16_3', 'r16_4']},
-    {id:'qf_4', from:['r16_7', 'r16_8']},
+    {id:'qf_4', from:['r16_7', 'r16_8']}
   ];
   const SF_PAIRS = [
     {id:'sf_1', from:['qf_1', 'qf_2']},
-    {id:'sf_2', from:['qf_3', 'qf_4']},
+    {id:'sf_2', from:['qf_3', 'qf_4']}
   ];
-
   function buildRound(pairs) {
     return pairs.map(p => ({
       id: p.id,
-      home: koRes[p.from[0]] || `Winner of match ${p.from[0]}`,
-      away: koRes[p.from[1]] || `Winner of match ${p.from[1]}`,
+      home: koRes[p.from[0]] || ("Winner of match " + p.from[0]),
+      away: koRes[p.from[1]] || ("Winner of match " + p.from[1])
     }));
   }
-
   const r16 = buildRound(R16_PAIRS);
   const qf  = buildRound(QF_PAIRS);
   const sf  = buildRound(SF_PAIRS);
-
   const sfW0 = koRes[sf[0].id] || null;
   const sfW1 = koRes[sf[1].id] || null;
   const sfL0 = sfW0 ? (sfW0 === sf[0].home ? sf[0].away : sf[0].home) : null;
   const sfL1 = sfW1 ? (sfW1 === sf[1].home ? sf[1].away : sf[1].home) : null;
-
   return {
     r32, r16, qf, sf,
     bronze: {id:"bronze", home: sfL0 || "SF1 loser", away: sfL1 || "SF2 loser"},
@@ -316,372 +286,461 @@ function buildBracket(gRes, koRes) {
   };
 }
 
-// --- Boot ---
-async function boot() {
-  if (!sb) return;
-  await loadSettings();
-  await loadAdminResults();
-  // restore session
-  const uid = localStorage.getItem("wc2026_uid");
-  if (uid) {
-    try {
-      const {data} = await sb.from("users").select("*").eq("id", uid).maybeSingle();
-      if (data) { CU = data; await loadUserPicks(); }
-    } catch (e) {}
-  }
-  updateHome();
-  setInterval(tickCountdown, 1000);
-  tickCountdown();
-  setInterval(async () => {
-    await loadSettings();
-    await loadAdminResults();
-    updateHome();
-  }, 30000);
-}
+// ====== NAV ======
 
-function tickCountdown() {
-  const el = document.getElementById("home-cd"); if (!el) return;
-  const d = LOCK_TIME - Date.now();
-  if (d <= 0) { el.textContent = ""; return; }
-  const dd = Math.floor(d/86400000);
-  const hh = Math.floor((d % 86400000)/3600000);
-  const mm = Math.floor((d % 3600000)/60000);
-  const ss = Math.floor((d % 60000)/1000);
-  el.textContent = `Tournament starts in: ${dd}d ${hh}h ${mm}m ${ss}s`;
-}
-
-function updateHome() {
-  document.getElementById("h-players").textContent = allUsers.length || "—";
-  const lk = isTimeLocked();
-  document.getElementById("h-st").textContent = lk ? "Locked" : "Open";
-  document.getElementById("h-st").style.color = lk ? "var(--danger)" : "var(--primary)";
-  document.getElementById("home-lock").style.display = lk ? "flex" : "none";
-}
-
-// --- Navigation ---
 function nav(p) {
-  ["home","reg","pick","board","admin"].forEach(id => {
-    document.getElementById("pg-"+id).classList.toggle("on", id === p);
-  });
-  const tabs = {home:0, reg:1, pick:2, board:3, admin:4};
-  document.querySelectorAll(".ntab").forEach((b,i) => b.classList.toggle("on", i === tabs[p]));
+  document.querySelectorAll("#main-nav .ntab").forEach(b => b.classList.remove("on"));
+  document.querySelectorAll(".pg").forEach(s => s.classList.remove("on"));
+  const pages = {"home":"pg-home","reg":"pg-reg","pick":"pg-pick","board":"pg-board","admin":"pg-admin"};
+  const tabs = {"home":0,"reg":1,"pick":2,"board":3,"admin":4};
+  const pgEl = document.getElementById(pages[p]);
+  if (pgEl) pgEl.classList.add("on");
+  const navBtns = document.querySelectorAll("#main-nav .ntab");
+  if (navBtns[tabs[p]]) navBtns[tabs[p]].classList.add("on");
   if (p === "pick") renderPick();
-  if (p === "board") loadAllForLeaderboard().then(() => { computeScores(); renderBoard(); });
+  if (p === "board") { computeScores(); renderBoard(); }
   if (p === "admin") renderAdm();
-  if (p === "reg") {
-    const lk = isTimeLocked();
-    document.getElementById("reg-lock").style.display = lk ? "flex" : "none";
-    document.getElementById("reg-btn").disabled = lk;
-  }
 }
 
 function showAdmin() {
-  adminClickCount++;
-  if (adminClickCount >= 3) {
-    document.getElementById("admin-tab").style.display = "";
+  adminClicks++;
+  if (adminClicks >= 1) {
+    document.getElementById("admin-tab").style.display = "inline-block";
     nav("admin");
   }
 }
 
-// --- Auth ---
-async function register() {
-  const name = document.getElementById("reg-name").value.trim();
-  const pass = document.getElementById("reg-pass").value.trim();
-  const msg = document.getElementById("reg-msg");
-  msg.className = "err-msg";
-  if (isTimeLocked()) { msg.textContent = "Sign-up closed."; return; }
-  if (name.length < 2) { msg.textContent = "Name too short."; return; }
-  if (pass.length < 4) { msg.textContent = "Password too short (min 4)."; return; }
-  try {
-    const {data: existing} = await sb.from("users").select("id").eq("name", name).maybeSingle();
-    if (existing) { msg.textContent = "Name already taken."; return; }
-    const {data: created, error} = await sb.from("users").insert({name, password: pass}).select().single();
-    if (error) { msg.textContent = "Error: " + error.message; return; }
-    CU = created;
-    localStorage.setItem("wc2026_uid", CU.id);
-    userPicks = {}; userKoPicks = {};
-    msg.className = "ok-msg"; msg.textContent = "Account created!";
-    setTimeout(() => nav("pick"), 600);
-  } catch (e) {
-    msg.textContent = "Error: " + (e.message || e);
+// ====== BOOT ======
+
+async function boot() {
+  if (!configIsValid()) {
+    document.getElementById("config-error").style.display = "block";
+    document.getElementById("app-content").style.display = "none";
+    return;
+  }
+  document.getElementById("app-content").style.display = "block";
+  await loadSettings();
+  await loadAdminResults();
+  const uid = localStorage.getItem("wc2026_uid");
+  if (uid) {
+    try {
+      const { data } = await sb.from("users").select("*").eq("id", uid).single();
+      if (data) CU = data;
+    } catch (e) {}
+  }
+  if (CU) await loadUserPicks();
+  await loadAllForLeaderboard();
+  computeScores();
+  tickCountdown();
+  setInterval(tickCountdown, 1000);
+  updateHome();
+}
+
+function tickCountdown() {
+  const now = Date.now();
+  const diff = LOCK_TIME - now;
+  const el = document.getElementById("home-cd");
+  if (!el) return;
+  if (diff <= 0) {
+    el.textContent = "Predictions locked — tournament started!";
+    const hl = document.getElementById("home-lock");
+    if (hl) hl.style.display = "flex";
+    return;
+  }
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor((diff % 86400000) / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+  el.textContent = "Closes in " + d + "d " + h + "h " + m + "m " + s + "s";
+}
+
+function updateHome() {
+  document.getElementById("h-players").textContent = allUsers.length;
+  document.getElementById("h-st").textContent = isTimeLocked() ? "Closed" : "Open";
+  if (isTimeLocked()) {
+    const rl = document.getElementById("reg-lock");
+    if (rl) rl.style.display = "flex";
   }
 }
 
-async function doLogin() {
-  const name = document.getElementById("li-name").value.trim();
-  const pass = document.getElementById("li-pass").value.trim();
-  const msg = document.getElementById("li-msg");
-  msg.className = "err-msg";
+// ====== AUTH ======
+
+async function register() {
+  const name = (document.getElementById("reg-name").value || "").trim();
+  const pw = (document.getElementById("reg-pass").value || "").trim();
+  if (!name || !pw) { document.getElementById("reg-msg").textContent = "Please enter name and password."; return; }
+  if (isTimeLocked()) { document.getElementById("reg-msg").textContent = "Registration closed."; return; }
   try {
-    const {data} = await sb.from("users").select("*").eq("name", name).maybeSingle();
-    if (!data) { msg.textContent = "User not found."; return; }
-    if (data.password !== pass) { msg.textContent = "Wrong password."; return; }
+    const existing = await sb.from("users").select("id").eq("name", name);
+    if (existing.data && existing.data.length) { document.getElementById("reg-msg").textContent = "Name taken. Use Log in below."; return; }
+    const { data, error } = await sb.from("users").insert([{name, password: pw}]).select().single();
+    if (error) { document.getElementById("reg-msg").textContent = "Error: " + error.message; return; }
     CU = data;
     localStorage.setItem("wc2026_uid", CU.id);
     await loadUserPicks();
-    msg.className = "ok-msg"; msg.textContent = "Logged in!";
-    setTimeout(() => nav("pick"), 500);
-  } catch (e) {
-    msg.textContent = "Error: " + (e.message || e);
-  }
+    await loadAllForLeaderboard();
+    nav("pick");
+  } catch (e) { document.getElementById("reg-msg").textContent = "Error: " + e.message; }
+}
+
+async function doLogin() {
+  const name = (document.getElementById("li-name").value || "").trim();
+  const pw = (document.getElementById("li-pass").value || "").trim();
+  if (!name || !pw) { document.getElementById("li-msg").textContent = "Enter both name and password."; return; }
+  try {
+    const { data } = await sb.from("users").select("*").eq("name", name).eq("password", pw);
+    if (!data || !data.length) { document.getElementById("li-msg").textContent = "Invalid credentials."; return; }
+    CU = data[0];
+    localStorage.setItem("wc2026_uid", CU.id);
+    await loadUserPicks();
+    await loadAllForLeaderboard();
+    nav("pick");
+  } catch (e) { document.getElementById("li-msg").textContent = "Error: " + e.message; }
 }
 
 function logout() {
   CU = null;
-  userPicks = {}; userKoPicks = {};
+  userPicks = {}; userKoPicks = {}; userExtras = {};
   localStorage.removeItem("wc2026_uid");
   nav("home");
 }
 
-// --- Picks: save handlers ---
-async function setPick(id, val) {
-  if (!CU || isUserLocked()) return;
-  userPicks[id] = val;
-  // Optimistic UI
+// ====== PICKS UI ======
+
+async function moveTeam(g, teamName, direction) {
+  if (isUserLocked()) return;
+  const displayOrder = getDisplayOrder(userPicks, g);
+  const idx = displayOrder.indexOf(teamName);
+  if (idx === -1) return;
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx > 3) return;
+  [displayOrder[idx], displayOrder[newIdx]] = [displayOrder[newIdx], displayOrder[idx]];
+  await saveRanking(g, displayOrder);
   renderPickGroup();
-  renderPickStandings();
   renderPickGTabs();
   updateProgress();
-  showSaving();
-  try {
-    await sb.from("group_picks").upsert(
-      {user_id: CU.id, match_id: id, pick: val},
-      {onConflict: "user_id,match_id"}
-    );
-  } catch (e) { console.error("setPick", e); }
 }
 
-async function setKoPick(id, team) {
+async function saveRanking(g, ranking) {
+  if (!CU) return;
+  showSaving();
+  ranking.forEach((team, i) => { userPicks["rank_" + g + "_" + (i+1)] = team; });
+  // Invalidate thirds_advancing if the 3rd of any group changed (some advancing thirds may no longer exist)
+  const adv = getAdvancingThirds(userPicks);
+  const validThirds = new Set(getThirds(userPicks).map(t => t.name));
+  const stillValid = adv.filter(t => validThirds.has(t));
+  if (stillValid.length !== adv.length) {
+    userPicks.thirds_advancing = stillValid.join(",");
+  }
+  const rows = ranking.map((team, i) => ({
+    user_id: CU.id, match_id: "rank_" + g + "_" + (i+1), pick: team
+  }));
+  try {
+    await sb.from("group_picks").upsert(rows, {onConflict: "user_id,match_id"});
+    if (stillValid.length !== adv.length) {
+      await sb.from("group_picks").upsert([{
+        user_id: CU.id, match_id: "thirds_advancing", pick: stillValid.join(",")
+      }], {onConflict: "user_id,match_id"});
+    }
+  } catch (e) { console.error("saveRanking", e); }
+}
+
+async function toggleThirdAdvance(teamName) {
   if (!CU || isUserLocked()) return;
-  userKoPicks[id] = team;
+  const current = getAdvancingThirds(userPicks);
+  let newList;
+  if (current.includes(teamName)) {
+    newList = current.filter(t => t !== teamName);
+  } else {
+    if (current.length >= 8) { alert("Only 8 thirds can advance."); return; }
+    newList = current.concat([teamName]);
+  }
+  showSaving();
+  userPicks.thirds_advancing = newList.join(",");
+  try {
+    await sb.from("group_picks").upsert([{
+      user_id: CU.id, match_id: "thirds_advancing", pick: newList.join(",")
+    }], {onConflict: "user_id,match_id"});
+  } catch (e) { console.error("toggleThirdAdvance", e); }
   renderPickKO();
   updateProgress();
-  showSaving();
-  try {
-    await sb.from("ko_picks").upsert(
-      {user_id: CU.id, match_id: id, team},
-      {onConflict: "user_id,match_id"}
-    );
-  } catch (e) { console.error("setKoPick", e); }
 }
 
-
+async function setKoPick(matchId, teamName) {
+  if (!CU || isUserLocked()) return;
+  showSaving();
+  userKoPicks[matchId] = teamName;
+  try {
+    await sb.from("ko_picks").upsert([{user_id: CU.id, match_id: matchId, pick: teamName}], {onConflict: "user_id,match_id"});
+  } catch (e) { console.error("setKoPick", e); }
+  renderPickKO();
+  updateProgress();
+}
 
 async function saveTopScorer() {
   if (!CU || isUserLocked()) return;
-  const t = document.getElementById("pick-topscorer").value.trim();
-  CU.top_scorer = t;
-  updateProgress();
+  const ts = (document.getElementById("pick-topscorer").value || "").trim();
   showSaving();
-  try { await sb.from("users").update({top_scorer: t}).eq("id", CU.id); }
-  catch (e) { console.error("saveTopScorer", e); }
+  userExtras.top_scorer = ts;
+  try {
+    await sb.from("extras").upsert([{user_id: CU.id, key: "top_scorer", value: ts}], {onConflict: "user_id,key"});
+  } catch (e) { console.error("saveTopScorer", e); }
+  updateProgress();
 }
 
 async function submitPicks() {
-  if (!CU || isUserLocked()) return;
-  if (!confirm("Submit your picks? Once submitted you cannot change them anymore.")) return;
-  showSaving();
+  if (!CU) return;
+  if (isTimeLocked()) { alert("Predictions are locked."); return; }
+  if (!canSubmit()) { alert("Complete all picks first: 12 group rankings, 8 thirds, all KO picks, top scorer."); return; }
   try {
-    await sb.from("users").update({
-      submitted: true,
-      submitted_at: new Date().toISOString()
-    }).eq("id", CU.id);
+    await sb.from("users").update({submitted: true}).eq("id", CU.id);
     CU.submitted = true;
-    CU.submitted_at = new Date().toISOString();
     renderPick();
-  } catch (e) { alert("Error: " + (e.message || e)); }
+    alert("Predictions submitted! Good luck.");
+  } catch (e) { alert("Error: " + e.message); }
 }
 
-// --- Picks: rendering ---
+function canSubmit() {
+  if (!allGroupsComplete(userPicks)) return false;
+  if (!isThirdsComplete(userPicks)) return false;
+  const bracket = buildBracket(userPicks, userKoPicks);
+  const allMatches = bracket.r32.concat(bracket.r16).concat(bracket.qf).concat(bracket.sf).concat([bracket.bronze, bracket.final]);
+  for (const m of allMatches) {
+    if (!userKoPicks[m.id]) return false;
+  }
+  if (!(userExtras.top_scorer || "").trim()) return false;
+  return true;
+}
+
 function pickTab(t) {
-  pickSec = t;
-  document.querySelectorAll(".pick-tabs .pick-tab").forEach((b,i) => {
-    b.classList.toggle("on", ["groups","knockout","special"][i] === t);
-  });
-  document.getElementById("sec-groups").style.display    = t === "groups"   ? "" : "none";
-  document.getElementById("sec-knockout").style.display  = t === "knockout" ? "" : "none";
-  document.getElementById("sec-special").style.display   = t === "special"  ? "" : "none";
-  if (t === "knockout") renderPickKO();
+  const map = {"groups":"sec-groups","knockout":"sec-knockout","special":"sec-special"};
+  document.querySelectorAll(".pick-tab").forEach(b => b.classList.remove("on"));
+  Object.values(map).forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
+  const tabBtns = document.querySelectorAll(".pick-tab");
+  const order = ["groups","knockout","special"];
+  const idx = order.indexOf(t);
+  if (idx >= 0 && tabBtns[idx]) tabBtns[idx].classList.add("on");
+  const el = document.getElementById(map[t]);
+  if (el) el.style.display = "block";
 }
 
 function renderPick() {
   if (!CU) {
-    document.getElementById("pick-gate").style.display = "";
+    document.getElementById("pick-gate").style.display = "block";
     document.getElementById("pick-main").style.display = "none";
     return;
   }
   document.getElementById("pick-gate").style.display = "none";
-  document.getElementById("pick-main").style.display = "";
+  document.getElementById("pick-main").style.display = "block";
   document.getElementById("pick-uname").textContent = CU.name;
   const lk = isUserLocked();
-  document.getElementById("pick-submitted-banner").style.display = CU.submitted ? "flex" : "none";
-  document.getElementById("pick-lock-banner").style.display = (isTimeLocked() && !CU.submitted) ? "flex" : "none";
-  
-  const tsInput = document.getElementById("pick-topscorer");
-  tsInput.value = CU.top_scorer || "";
-  tsInput.disabled = lk;
-  tsInput.oninput = saveTopScorer;
+  document.getElementById("pick-lock-banner").style.display = isTimeLocked() ? "flex" : "none";
+  document.getElementById("pick-submitted-banner").style.display = (CU.submitted && !isTimeLocked()) ? "flex" : "none";
   renderPickGTabs();
   renderPickGroup();
-  renderPickStandings();
+  renderPickKO();
+  renderPickSpecial();
+  // Clear old standings element (we don't use it anymore)
+  const ps = document.getElementById("pick-standings");
+  if (ps) ps.innerHTML = "";
   updateProgress();
 }
 
 function renderPickGTabs() {
-  document.getElementById("pick-gtabs").innerHTML = Object.keys(GROUPS).map(g => {
-    const done = groupComplete(userPicks, g);
-    const cls = `stab${g === vG ? " on" : ""}${done ? " done" : ""}`;
-    const tick = done ? " ✓" : "";
-    return `<button class="${cls}" onclick="swVG('${g}')">${g}${tick}</button>`;
-  }).join("");
+  let h = '';
+  Object.keys(GROUPS).forEach(g => {
+    const complete = isGroupComplete(userPicks, g);
+    const active = (g === vG);
+    h += '<button class="stab' + (active ? ' on' : '') + (complete ? ' done' : '') + '" onclick="swVG(\'' + g + '\')">' + g + (complete ? ' ✓' : '') + '</button>';
+  });
+  document.getElementById("pick-gtabs").innerHTML = h;
 }
-function swVG(g) { vG = g; renderPickGTabs(); renderPickGroup(); renderPickStandings(); }
 
-function ox2Row(m, picks, locked, cbFn) {
-  const cur = picks[m.id] || null;
-  const dis = locked ? "disabled" : "";
-  function btn(val, label) {
-    const style = cur === val ? ` style="${SEL_STYLE[val]}"` : "";
-    return `<button class="ox2-btn"${style} ${dis} onclick="${cbFn}('${m.id}','${val}')">${label}</button>`;
-  }
-  return `<div class="ox2-row"><span class="ox2-tm">${m.home}</span><div class="ox2-btns">${btn("1","1")}${btn("x","X")}${btn("2","2")}</div><span class="ox2-tm r">${m.away}</span></div>`;
-}
+function swVG(g) { vG = g; renderPickGTabs(); renderPickGroup(); }
 
 function renderPickGroup() {
+  if (!CU) return;
   const lk = isUserLocked();
-  let h = `<div class="card"><div class="lbl">Group ${vG}</div>`;
-  if (!lk) h += `<div style="margin-bottom:10px"><span class="legend-chip"><span class="legend-box" style="background:#1a7a3c">1</span>home wins</span><span class="legend-chip"><span class="legend-box" style="background:#1f6fc4">X</span>draw</span><span class="legend-chip"><span class="legend-box" style="background:#c77400">2</span>away wins</span></div>`;
-  gMatches(vG).forEach(m => { h += ox2Row(m, userPicks, lk, "setPick"); });
-  h += `</div>`;
-  document.getElementById("pick-gcontent").innerHTML = h;
-}
+  const displayOrder = getDisplayOrder(userPicks, vG);
 
-function renderPickStandings() {
-  const st = calcStandings(userPicks, vG);
-  let h = `<div class="card"><div class="lbl">Group ${vG} — projected standings</div>`;
-  st.forEach((t,i) => {
-    h += `<div class="trow"><span style="color:var(--text-sec);font-size:12px;width:16px">${i+1}.</span><span style="flex:1;font-size:13px;font-weight:500">${t.name}${i<2 ? '<span class="adv">advances</span>' : ""}</span><span style="font-size:11px;color:var(--text-sec);min-width:70px">${t.w}W ${t.d}D ${t.l}L</span><span style="font-size:14px;font-weight:500;min-width:24px;text-align:right">${t.pts}</span></div>`;
+  let h = '<div class="card"><div class="lbl">Group ' + vG + ' — predict final order</div>';
+  h += '<div style="font-size:12px;color:var(--text-sec);margin-bottom:12px;line-height:1.5">Use ↑↓ to rank teams. 1st &amp; 2nd advance directly. 3rd may advance via the Knockout tab.</div>';
+
+  displayOrder.forEach((team, idx) => {
+    const pos = idx + 1;
+    const status = pos === 1 ? "Group winner · 3 pts" : pos === 2 ? "Runner-up · 2 pts" : pos === 3 ? "3rd place · 1 pt" : "Eliminated";
+    const upDisabled = (idx === 0) || lk;
+    const downDisabled = (idx === 3) || lk;
+    const rowBg = pos <= 2 ? "background:var(--success-bg)" : pos === 3 ? "background:var(--warn-bg)" : "background:var(--bg-secondary)";
+    const teamEsc = team.replace(/'/g, "\\'");
+    h += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:0.5px solid var(--border);border-radius:8px;margin-bottom:6px;' + rowBg + '">';
+    h += '<span style="font-weight:600;font-size:14px;width:22px;color:var(--text-sec)">' + pos + '.</span>';
+    h += '<div style="flex:1;min-width:0"><div style="font-weight:500;font-size:14px;color:var(--text)">' + team + '</div><div style="font-size:11px;color:var(--text-sec)">' + status + '</div></div>';
+    h += '<button onclick="moveTeam(\'' + vG + '\',\'' + teamEsc + '\',-1)" ' + (upDisabled ? 'disabled' : '') + ' style="padding:5px 11px;font-size:14px">↑</button>';
+    h += '<button onclick="moveTeam(\'' + vG + '\',\'' + teamEsc + '\',1)" ' + (downDisabled ? 'disabled' : '') + ' style="padding:5px 11px;font-size:14px">↓</button>';
+    h += '</div>';
   });
-  document.getElementById("pick-standings").innerHTML = h + "</div>";
+  h += '</div>';
+  document.getElementById("pick-gcontent").innerHTML = h;
 }
 
 function renderPickKO() {
   if (!CU) return;
-  const bracket = buildBracket(userPicks, userKoPicks);
   const lk = isUserLocked();
+  const bracket = buildBracket(userPicks, userKoPicks);
+
+  let h = '';
+  const thirds = getThirds(userPicks);
+  const advancing = new Set(getAdvancingThirds(userPicks));
+  if (thirds.length === 0) {
+    h += '<div class="card"><div class="lbl">Pick 8 advancing thirds</div><div style="font-size:13px;color:var(--text-sec)">Complete group rankings first to choose which third-place teams advance.</div></div>';
+  } else {
+    h += '<div class="card"><div class="lbl">Pick 8 advancing third-place teams <span style="text-transform:none;font-weight:500;letter-spacing:0">(' + advancing.size + '/8 · 1 pt each)</span></div>';
+    h += '<div style="font-size:12px;color:var(--text-sec);margin-bottom:12px;line-height:1.5">Here are your predicted 3rd-place finishers from each group. Pick 8 to advance to the Round of 32.</div>';
+    const sortedThirds = thirds.slice().sort((a,b) => a.group.localeCompare(b.group));
+    sortedThirds.forEach(t => {
+      const isSel = advancing.has(t.name);
+      const btnDisabled = ((!isSel && advancing.size >= 8) || lk);
+      const rowBg = isSel ? "background:var(--success-bg)" : "background:var(--bg-secondary)";
+      const teamEsc = t.name.replace(/'/g, "\\'");
+      h += '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:0.5px solid var(--border);border-radius:8px;margin-bottom:5px;' + rowBg + '">';
+      h += '<span style="font-weight:600;font-size:12px;width:22px;color:var(--text-sec)">' + t.group + '</span>';
+      h += '<span style="flex:1;font-size:14px;font-weight:500;color:var(--text)">' + t.name + '</span>';
+      h += '<button onclick="toggleThirdAdvance(\'' + teamEsc + '\')" ' + (btnDisabled ? 'disabled' : '') + ' style="padding:5px 12px;font-size:12px;background:' + (isSel ? 'var(--primary)' : '#fff') + ';color:' + (isSel ? '#fff' : 'var(--text)') + ';border-color:' + (isSel ? 'var(--primary)' : 'var(--border-strong)') + ';font-weight:500">' + (isSel ? '✓ Selected' : 'Pick') + '</button>';
+      h += '</div>';
+    });
+    h += '</div>';
+  }
+
   const rounds = [
-    {label:"Round of 32",   pts:"2 pts", matches: bracket.r32},
-    {label:"Round of 16",   pts:"3 pts", matches: bracket.r16},
-    {label:"Quarter-finals",pts:"4 pts", matches: bracket.qf},
-    {label:"Semi-finals",   pts:"5 pts", matches: bracket.sf},
-    {label:"Third place",   pts:"4 pts", matches: [bracket.bronze]},
-    {label:"Final",         pts:"Finalist 5 pts · Champion 10 pts", matches: [bracket.final]},
+    {label:"Round of 32",    pts:"2 pts",  matches: bracket.r32},
+    {label:"Round of 16",    pts:"3 pts",  matches: bracket.r16},
+    {label:"Quarter-finals", pts:"4 pts",  matches: bracket.qf},
+    {label:"Semi-finals",    pts:"5 pts",  matches: bracket.sf},
+    {label:"Third place",    pts:"4 pts",  matches: [bracket.bronze]},
+    {label:"Final",          pts:"20 pts", matches: [bracket.final]}
   ];
-  let h = "";
   rounds.forEach(({label, pts, matches}) => {
-    h += `<div class="round-hdr">${label}<span class="pts-badge">${pts}</span></div>`;
+    h += '<div class="round-hdr">' + label + '<span class="pts-badge">' + pts + '</span></div>';
     matches.forEach(m => {
-      const isTBD = /Winner|loser|TBD|SF/.test(m.home) || /Winner|loser|TBD|SF/.test(m.away);
+      const isTBD = /Winner|loser|TBD|SF|3rd /.test(m.home) || /Winner|loser|TBD|SF|3rd /.test(m.away);
       const sel = userKoPicks[m.id] || null;
       const canClick = !isTBD && !lk;
-      const hCls = `ko-tm${sel === m.home ? " sel" : ""}${!canClick ? " disabled" : ""}${isTBD ? " tbd" : ""}`;
-      const aCls = `ko-tm${sel === m.away ? " sel" : ""}${!canClick ? " disabled" : ""}${isTBD ? " tbd" : ""}`;
-      const hClk = canClick ? `onclick="setKoPick('${m.id}','${m.home.replace(/'/g,"\\'")}')"` : "";
-      const aClk = canClick ? `onclick="setKoPick('${m.id}','${m.away.replace(/'/g,"\\'")}')"` : "";
-      h += `<div class="ko-match${isTBD ? " pending" : ""}"><div class="ko-teams-row"><div class="${hCls}" ${hClk}>${m.home}</div><div class="ko-vs">vs</div><div class="${aCls}" ${aClk}>${m.away}</div></div></div>`;
+      const hCls = "ko-tm" + (sel === m.home ? " sel" : "") + (!canClick ? " disabled" : "") + (isTBD ? " tbd" : "");
+      const aCls = "ko-tm" + (sel === m.away ? " sel" : "") + (!canClick ? " disabled" : "") + (isTBD ? " tbd" : "");
+      const hEsc = m.home.replace(/'/g, "\\'");
+      const aEsc = m.away.replace(/'/g, "\\'");
+      const hClk = canClick ? 'onclick="setKoPick(\'' + m.id + '\',\'' + hEsc + '\')"' : "";
+      const aClk = canClick ? 'onclick="setKoPick(\'' + m.id + '\',\'' + aEsc + '\')"' : "";
+      h += '<div class="ko-match' + (isTBD ? " pending" : "") + '"><div class="ko-teams-row"><div class="' + hCls + '" ' + hClk + '>' + m.home + '</div><div class="ko-vs">vs</div><div class="' + aCls + '" ' + aClk + '>' + m.away + '</div></div></div>';
     });
   });
   document.getElementById("pick-ko-content").innerHTML = h;
 }
 
-function updateProgress() {
-  const total = allGM().length;
-  const done = Object.keys(userPicks).filter(k => userPicks[k]).length;
-  const pct = Math.round(done/total*100);
-  const el = document.getElementById("prog-fill"); if (el) el.style.width = pct + "%";
-  const lbl = document.getElementById("prog-label"); if (lbl) lbl.textContent = `${done} / ${total} group picks`;
-  const pp = document.getElementById("prog-pct"); if (pp) pp.textContent = pct + "%";
-  updateSubmitState(done, total);
-}
-
-function updateSubmitState(done, total) {
-  if (!CU) return;
-  const submitCard = document.getElementById("submit-card");
-  const btn = document.getElementById("submit-btn");
-  const status = document.getElementById("submit-status");
-  if (CU.submitted) { submitCard.style.display = "none"; return; }
-  if (isTimeLocked()) { submitCard.style.display = "none"; return; }
-  submitCard.style.display = "";
-  const groupsMissing = total - done;
-  const koTotal = 32;
-  const koDone = Object.keys(userKoPicks).filter(k => userKoPicks[k]).length;
-  const koMissing = koTotal - koDone;
-  const tsMissing = !CU.top_scorer || !CU.top_scorer.trim();
-  const missing = [];
-  if (groupsMissing > 0) missing.push(`${groupsMissing} group match${groupsMissing===1?"":"es"}`);
-  if (koMissing > 0) missing.push(`${koMissing} knockout pick${koMissing===1?"":"s"}`);
-  if (tsMissing) missing.push("top scorer");
-  if (missing.length > 0) {
-    btn.disabled = true;
-    status.innerHTML = `Still missing: <strong>${missing.join(", ")}</strong>. Fill everything to unlock submit.`;
-  } else {
-    btn.disabled = false;
-    status.textContent = `Everything filled — ready to submit! Once submitted you cannot change your picks anymore.`;
+function renderPickSpecial() {
+  const ts = document.getElementById("pick-topscorer");
+  if (ts) {
+    ts.value = userExtras.top_scorer || "";
+    ts.disabled = isUserLocked();
+    ts.onblur = saveTopScorer;
   }
 }
 
-// --- Leaderboard ---
+function updateProgress() {
+  if (!CU) return;
+  const lk = isUserLocked();
+  const groupsDone = Object.keys(GROUPS).filter(g => isGroupComplete(userPicks, g)).length;
+  const thirdsCount = getAdvancingThirds(userPicks).length;
+  const bracket = buildBracket(userPicks, userKoPicks);
+  const allKo = bracket.r32.concat(bracket.r16).concat(bracket.qf).concat(bracket.sf).concat([bracket.bronze, bracket.final]);
+  const koDone = allKo.filter(m => userKoPicks[m.id]).length;
+  const koTotal = allKo.length;
+  const scorerDone = !!(userExtras.top_scorer || "").trim();
+
+  // Progress: groups (12) + thirds (8) + KO (32) + scorer (1) = 53 total milestones
+  const done = groupsDone + Math.min(thirdsCount, 8) + koDone + (scorerDone ? 1 : 0);
+  const total = 12 + 8 + koTotal + 1;
+  const pct = Math.round((done / total) * 100);
+
+  const pl = document.getElementById("prog-label");
+  const pp = document.getElementById("prog-pct");
+  const pf = document.getElementById("prog-fill");
+  if (pl) pl.textContent = groupsDone + "/12 groups · " + thirdsCount + "/8 thirds · " + koDone + "/" + koTotal + " KO";
+  if (pp) pp.textContent = pct + "%";
+  if (pf) pf.style.width = pct + "%";
+
+  const ss = document.getElementById("submit-status");
+  if (ss) {
+    if (CU.submitted) ss.innerHTML = "✓ Submitted and locked.";
+    else if (lk) ss.innerHTML = "🔒 Locked.";
+    else if (canSubmit()) ss.innerHTML = "All picks complete — ready to submit!";
+    else ss.innerHTML = "Still need: " + (12-groupsDone) + " groups, " + (8-thirdsCount) + " thirds, " + (koTotal-koDone) + " KO, " + (scorerDone ? "" : "top scorer");
+  }
+  const sb = document.getElementById("submit-btn");
+  if (sb) sb.disabled = lk || CU.submitted || !canSubmit();
+  if (sb) sb.textContent = CU.submitted ? "Submitted ✓" : "Submit my final picks";
+}
+
+// ====== LEADERBOARD ======
+
 function computeScores() {
   scoresByUser = {};
   allUsers.forEach(u => {
-    scoresByUser[u.id] = {total:0, group:0, adv:0, ko:0, spec:0};
+    scoresByUser[u.id] = { name: u.name, groups: 0, thirds: 0, ko: 0, scorer: 0, total: 0 };
   });
 
-  // Group match points
-  allGM().forEach(m => {
-    const r = admGroupRes[m.id]; if (!r) return;
-    allUsers.forEach(u => {
-      const p = (allUserPicks[u.id] || {})[m.id];
-      if (p && p === r) {
-        scoresByUser[u.id].group += 2;
-        scoresByUser[u.id].total += 2;
-      }
-    });
-  });
-
-  // Advancement points
-  const realAdv = {};
-  Object.keys(GROUPS).forEach(g => {
-    realAdv[g] = calcStandings(admGroupRes, g).slice(0,2).map(t => t.name);
-  });
   allUsers.forEach(u => {
-    const userPicksMap = allUserPicks[u.id] || {};
-    const predAdv = {};
+    const picks = allUserPicks[u.id] || {};
     Object.keys(GROUPS).forEach(g => {
-      predAdv[g] = calcStandings(userPicksMap, g).slice(0,2).map(t => t.name);
-    });
-    Object.keys(GROUPS).forEach(g => {
-      predAdv[g].forEach(t => {
-        if (realAdv[g].includes(t)) {
-          scoresByUser[u.id].adv += 2;
-          scoresByUser[u.id].total += 2;
+      [1, 2, 3].forEach(pos => {
+        const userTeam = picks["rank_" + g + "_" + pos];
+        const realTeam = admGroupRes["rank_" + g + "_" + pos];
+        if (userTeam && realTeam && userTeam === realTeam) {
+          const pts = GROUP_POS_PTS[pos - 1];
+          scoresByUser[u.id].groups += pts;
+          scoresByUser[u.id].total += pts;
         }
       });
     });
   });
 
-  // KO match winner points
+  const realAdv = new Set((admGroupRes.thirds_advancing || "").split(",").filter(s => s));
+  allUsers.forEach(u => {
+    const picks = allUserPicks[u.id] || {};
+    const userAdv = (picks.thirds_advancing || "").split(",").filter(s => s);
+    userAdv.forEach(t => {
+      if (realAdv.has(t)) {
+        scoresByUser[u.id].thirds += THIRD_ADV_PT;
+        scoresByUser[u.id].total += THIRD_ADV_PT;
+      }
+    });
+  });
+
+  // LENIENT scoring: award points if user picked a team to advance from a round
+  // and that team actually advanced (regardless of which bracket slot).
   const realBracket = buildBracket(admGroupRes, admKoRes);
   ["r32","r16","qf","sf"].forEach(k => {
     const pts = KO_PTS[k];
+    // Set of teams that actually advanced from this round
+    const realAdvancers = new Set();
     realBracket[k].forEach(rm => {
-      const realW = admKoRes[rm.id]; if (!realW) return;
-      allUsers.forEach(u => {
-        const userBracket = buildBracket(allUserPicks[u.id] || {}, allUserKoPicks[u.id] || {});
-        const userM = userBracket[k].find(um => um.id === rm.id);
-        if (!userM) return;
-        const userW = (allUserKoPicks[u.id] || {})[userM.id];
-        if (userW && userW === realW) {
+      const w = admKoRes[rm.id];
+      if (w) realAdvancers.add(w);
+    });
+    if (realAdvancers.size === 0) return;
+    allUsers.forEach(u => {
+      const koP = allUserKoPicks[u.id] || {};
+      const userBracket = buildBracket(allUserPicks[u.id] || {}, koP);
+      // Set of teams the user picked to advance from this round
+      const userAdvancers = new Set();
+      userBracket[k].forEach(um => {
+        const w = koP[um.id];
+        if (w) userAdvancers.add(w);
+      });
+      // Award pts for each team in both sets
+      userAdvancers.forEach(team => {
+        if (realAdvancers.has(team)) {
           scoresByUser[u.id].ko += pts;
           scoresByUser[u.id].total += pts;
         }
@@ -689,280 +748,319 @@ function computeScores() {
     });
   });
 
-  // Bronze
-  const bronzeW = admKoRes["bronze"];
-  if (bronzeW) {
+  if (admKoRes.bronze) {
     allUsers.forEach(u => {
-      const userW = (allUserKoPicks[u.id] || {})["bronze"];
-      if (userW && userW === bronzeW) {
+      if ((allUserKoPicks[u.id] || {}).bronze === admKoRes.bronze) {
         scoresByUser[u.id].ko += KO_PTS.bronze;
         scoresByUser[u.id].total += KO_PTS.bronze;
       }
     });
   }
-
-  
-
-  // Top scorer
-  if (settings.top_scorer_result) {
-    const ts = settings.top_scorer_result.toLowerCase().trim();
+  if (admKoRes.final) {
     allUsers.forEach(u => {
-      if ((u.top_scorer || "").toLowerCase().trim() === ts) {
-        scoresByUser[u.id].spec += 8;
-        scoresByUser[u.id].total += 8;
+      if ((allUserKoPicks[u.id] || {}).final === admKoRes.final) {
+        scoresByUser[u.id].ko += KO_PTS.final;
+        scoresByUser[u.id].total += KO_PTS.final;
+      }
+    });
+  }
+
+  const realScorer = (admExtras.top_scorer || "").toLowerCase().trim();
+  if (realScorer) {
+    allUsers.forEach(u => {
+      const us = ((allUserExtras[u.id] || {}).top_scorer || "").toLowerCase().trim();
+      if (us && us === realScorer) {
+        scoresByUser[u.id].scorer = SCORER_PT;
+        scoresByUser[u.id].total += SCORER_PT;
       }
     });
   }
 }
 
 function renderBoard() {
-  const lb = document.getElementById("lb-list");
-  if (!allUsers.length) {
-    lb.innerHTML = '<div style="font-size:13px;color:var(--text-sec)">No participants yet.</div>';
-    document.getElementById("lb-specials").innerHTML = "";
-    document.getElementById("h-players").textContent = "0";
-    return;
+  const arr = Object.entries(scoresByUser).map(([id, s]) => ({id, ...s}));
+  arr.sort((a, b) => b.total - a.total);
+  let h = '';
+  if (arr.length === 0) {
+    h = '<div style="font-size:13px;color:var(--text-sec);padding:8px 0">No predictions yet.</div>';
+  } else {
+    h += '<div class="lbl" style="margin-top:0">Standings · Total points</div>';
+    arr.forEach((s, i) => {
+      const avCls = i === 0 ? "av1" : i === 1 ? "av2" : i === 2 ? "av3" : "avn";
+      h += '<div class="lb-row"><div class="av ' + avCls + '">' + (i+1) + '</div>';
+      h += '<div><div style="font-weight:500">' + s.name + '</div><div style="font-size:11px;color:var(--text-sec)">Grp ' + s.groups + ' · 3rd ' + s.thirds + ' · KO ' + s.ko + ' · TS ' + s.scorer + '</div></div>';
+      h += '<div style="text-align:right"><div style="font-weight:600;font-size:18px">' + s.total + '</div><div style="font-size:11px;color:var(--text-sec)">pts</div></div></div>';
+    });
   }
-  document.getElementById("h-players").textContent = allUsers.length;
-  const sorted = [...allUsers].sort((a,b) => (scoresByUser[b.id]?.total || 0) - (scoresByUser[a.id]?.total || 0));
-  const rc = ["av1","av2","av3"], ri = ["🥇","🥈","🥉"];
-  lb.innerHTML = sorted.map((u,i) => {
-    const sc = scoresByUser[u.id] || {total:0,group:0,adv:0,ko:0,spec:0};
-    const subBadge = u.submitted ? '<span class="badge bg" style="margin-left:6px;font-size:10px">submitted</span>' : "";
-   const champPick = (allUserKoPicks[u.id] || {})["final"];
-    return `<div class="lb-row"><div class="av ${i<3?rc[i]:"avn"}">${i<3?ri[i]:i+1}</div><div><div style="font-size:14px;font-weight:500">${u.name}${subBadge}</div><div style="font-size:11px;color:var(--text-sec);margin-top:1px">Group: ${sc.group} · Adv: ${sc.adv} · KO: ${sc.ko} · Specials: ${sc.spec}</div><div style="font-size:11px;color:var(--text-tert)">Champion pick: ${champPick || "—"} · Top scorer: ${u.top_scorer || "—"}</div></div><div style="text-align:right"><div style="font-size:18px;font-weight:500">${sc.total}</div><div style="font-size:11px;color:var(--text-sec)">pts</div></div></div>`;
-  }).join("");
-
-  const wc = {}, tc = {};
-  allUsers.forEach(u => {
-const champ = (allUserKoPicks[u.id] || {})["final"];
-    if (champ) wc[champ] = (wc[champ] || 0) + 1;
-    if (u.top_scorer) { const k = u.top_scorer.toLowerCase(); tc[k] = (tc[k] || 0) + 1; }
-  });
-  document.getElementById("lb-specials").innerHTML =
-    `<div style="font-size:13px;font-weight:500;margin-bottom:8px">Special picks summary</div>
-    <div style="font-size:13px;margin-bottom:6px"><span style="color:var(--text-sec)">Champion: </span>${
-      Object.entries(wc).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([t,c])=>`${t} <span style="color:var(--text-sec)">(${c})</span>`).join(" · ") || "—"
-    }</div>
-    <div style="font-size:13px"><span style="color:var(--text-sec)">Top scorer: </span>${
-      Object.entries(tc).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([t,c])=>`${t} <span style="color:var(--text-sec)">(${c})</span>`).join(" · ") || "—"
-    }</div>`;
+  document.getElementById("lb-list").innerHTML = h;
+  document.getElementById("lb-specials").innerHTML = '<div class="lbl" style="margin-top:0">Official top scorer</div><div style="font-size:14px;font-weight:500">' + (admExtras.top_scorer || "—") + '</div>';
 }
 
-// --- Admin ---
+// ====== ADMIN ======
+
 async function adminIn() {
-  const pw = document.getElementById("adm-pw").value;
-  const msg = document.getElementById("adm-msg");
-  msg.className = "err-msg";
-  await loadSettings();
-  if (pw !== settings.admin_password) { msg.textContent = "Wrong password."; return; }
-  isAdm = true;
-  document.getElementById("admin-tab").style.display = "";
+  const pw = (document.getElementById("adm-pw").value || "").trim();
+  const dbPw = settings.admin_password || "admin2026";
+  if (pw !== dbPw) { document.getElementById("adm-msg").textContent = "Wrong password."; return; }
   document.getElementById("adm-gate").style.display = "none";
-  document.getElementById("adm-main").style.display = "";
-  await loadAdminResults();
+  document.getElementById("adm-main").style.display = "block";
+  await loadAllForLeaderboard();
   await loadAdminUsers();
+  computeScores();
   renderAdm();
 }
 
 async function loadAdminUsers() {
-  if (!isAdm || !sb) return;
+  if (!sb) return;
   try {
-    const {data} = await sb.from("users").select("*").order("created_at", {ascending: true});
-    const list = document.getElementById("adm-user-list");
-    const countEl = document.getElementById("adm-user-count");
-    if (!data || !data.length) {
-      list.innerHTML = '<div style="font-size:13px;color:var(--text-sec)">No players yet.</div>';
-      countEl.textContent = "0";
-      return;
-    }
-    countEl.textContent = data.length;
-    list.innerHTML = data.map(u => {
-      const safeName = u.name.replace(/'/g, "\\'");
-      const sub = u.submitted ? ' <span class="badge bg" style="font-size:10px">submitted</span>' : '';
-      return `<div class="trow">
-        <div style="flex:1;font-size:13px;font-weight:500">${u.name}${sub}</div>
-        <button onclick="deleteUser('${u.id}','${safeName}')" style="font-size:11px;padding:4px 10px;color:var(--danger);border-color:var(--danger);background:#fff">Delete</button>
-      </div>`;
-    }).join("");
+    const { data } = await sb.from("users").select("*").order("name");
+    const users = data || [];
+    document.getElementById("adm-user-count").textContent = users.length;
+    let h = '';
+    users.forEach(u => {
+      const sub = u.submitted ? ' <span style="font-size:11px;color:var(--primary)">submitted</span>' : '';
+      h += '<div class="trow"><span style="flex:1">' + u.name + sub + '</span>';
+      h += '<button onclick="deleteUser(\'' + u.id + '\',\'' + u.name.replace(/'/g, "\\'") + '\')" style="font-size:11px;padding:3px 8px;border-color:var(--danger);color:var(--danger)">Delete</button></div>';
+    });
+    document.getElementById("adm-user-list").innerHTML = h || '<div style="font-size:12px;color:var(--text-sec)">No players yet.</div>';
   } catch (e) { console.error("loadAdminUsers", e); }
 }
 
 async function deleteUser(id, name) {
-  if (!confirm(`Delete player "${name}"?\n\nThis will permanently remove all their picks. This cannot be undone.`)) return;
-  showSaving();
+  if (!confirm("Delete '" + name + "' and all their picks?")) return;
   try {
+    await sb.from("group_picks").delete().eq("user_id", id);
+    await sb.from("ko_picks").delete().eq("user_id", id);
+    await sb.from("extras").delete().eq("user_id", id);
     await sb.from("users").delete().eq("id", id);
+    await loadAllForLeaderboard();
     await loadAdminUsers();
-  } catch (e) { alert("Error deleting: " + (e.message || e)); }
+    computeScores();
+  } catch (e) { alert("Error: " + e.message); }
 }
+
 function adminOut() {
-  isAdm = false;
-  adminClickCount = 0;
-  document.getElementById("admin-tab").style.display = "none";
-  document.getElementById("adm-gate").style.display = "";
   document.getElementById("adm-main").style.display = "none";
-  nav("home");
+  document.getElementById("adm-gate").style.display = "block";
 }
+
 async function changeAdmPw() {
-  const v = document.getElementById("adm-newpw").value.trim();
-  if (v.length < 4) { alert("Password must be at least 4 characters"); return; }
-  showSaving();
-  await sb.from("settings").update({value: v}).eq("key", "admin_password");
-  settings.admin_password = v;
+  const np = (document.getElementById("adm-newpw").value || "").trim();
+  if (!np) return;
+  await sb.from("settings").upsert([{key: "admin_password", value: np}], {onConflict: "key"});
+  settings.admin_password = np;
   document.getElementById("adm-newpw").value = "";
-  alert("Password updated.");
+  document.getElementById("adm-saved").textContent = "Password changed.";
+  setTimeout(() => { document.getElementById("adm-saved").textContent = ""; }, 2000);
 }
+
 async function toggleLock() {
-  const newVal = settings.force_locked === "true" ? "false" : "true";
-  showSaving();
-  await sb.from("settings").update({value: newVal}).eq("key", "force_locked");
-  settings.force_locked = newVal;
-  updateHome();
+  const cur = settings.force_locked === "true";
+  const next = !cur ? "true" : "false";
+  await sb.from("settings").upsert([{key: "force_locked", value: next}], {onConflict: "key"});
+  settings.force_locked = next;
   renderAdm();
 }
+
 async function setTS() {
-  const v = document.getElementById("adm-ts").value.trim();
-  showSaving();
-  await sb.from("settings").update({value: v}).eq("key", "top_scorer_result");
-  settings.top_scorer_result = v;
+  const v = (document.getElementById("adm-ts").value || "").trim();
+  await sb.from("admin_extras").upsert([{key: "top_scorer", value: v}], {onConflict: "key"});
+  admExtras.top_scorer = v;
+  document.getElementById("adm-saved").textContent = "Top scorer saved.";
+  setTimeout(() => { document.getElementById("adm-saved").textContent = ""; }, 2000);
 }
 
 function admTab(t) {
-  admSec = t;
-  document.querySelectorAll("#pg-admin .pick-tabs .pick-tab").forEach((b,i) =>
-    b.classList.toggle("on", ["groups","knockout"][i] === t));
-  document.getElementById("adm-g-sec").style.display = t === "groups" ? "" : "none";
-  document.getElementById("adm-ko-sec").style.display = t === "knockout" ? "" : "none";
-  if (t === "knockout") renderAdmKO();
+  const map = {"groups":"adm-g-sec","knockout":"adm-ko-sec"};
+  document.querySelectorAll(".pick-tab").forEach(b => {});  // admin uses same class
+  // Toggle visibility
+  Object.values(map).forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
+  const el = document.getElementById(map[t]);
+  if (el) el.style.display = "block";
+  // Update tab styling
+  const tabs = document.querySelectorAll("#pg-admin .pick-tab");
+  tabs.forEach(b => b.classList.remove("on"));
+  if (t === "groups" && tabs[0]) tabs[0].classList.add("on");
+  if (t === "knockout" && tabs[1]) tabs[1].classList.add("on");
 }
 
 function renderAdm() {
-  if (!isAdm) return;
-  const lk = isTimeLocked();
-  document.getElementById("lock-btn").textContent = settings.force_locked === "true" ? "Remove force lock" : "Force lock now";
-  document.getElementById("lock-lbl").textContent = lk ? "LOCKED" : "Open — auto-locks Jun 11 17:00";
-  document.getElementById("lock-lbl").style.color = lk ? "var(--danger)" : "var(--primary)";
-  document.getElementById("adm-ts").value = settings.top_scorer_result || "";
-  document.getElementById("adm-gtabs").innerHTML = Object.keys(GROUPS).map(g =>
-    `<button class="stab${g === aG ? " on" : ""}" onclick="swAG('${g}')">${g}</button>`
-  ).join("");
+  document.getElementById("lock-btn").textContent = settings.force_locked === "true" ? "Unlock predictions" : "Force lock";
+  document.getElementById("lock-lbl").textContent = settings.force_locked === "true" ? "Predictions force-locked." : "";
+  document.getElementById("adm-ts").value = admExtras.top_scorer || "";
+  let h = '';
+  Object.keys(GROUPS).forEach(g => {
+    const complete = isGroupComplete(admGroupRes, g);
+    const active = (g === aG);
+    h += '<button class="stab' + (active ? ' on' : '') + (complete ? ' done' : '') + '" onclick="swAG(\'' + g + '\')">' + g + (complete ? ' ✓' : '') + '</button>';
+  });
+  document.getElementById("adm-gtabs").innerHTML = h;
   renderAGroup();
-  renderAStandings();
+  renderAdmThirds();
+  renderAdmKO();
 }
-function swAG(g) { aG = g; document.querySelectorAll("#adm-gtabs .stab").forEach((b,i) => b.classList.toggle("on", Object.keys(GROUPS)[i] === g)); renderAGroup(); renderAStandings(); }
+
+function swAG(g) { aG = g; renderAdm(); }
 
 function renderAGroup() {
-  let h = `<div class="card"><div class="lbl">Group ${aG} — official results</div><div style="margin-bottom:10px"><span class="legend-chip"><span class="legend-box" style="background:#1a7a3c">1</span>home wins</span><span class="legend-chip"><span class="legend-box" style="background:#1f6fc4">X</span>draw</span><span class="legend-chip"><span class="legend-box" style="background:#c77400">2</span>away wins</span></div>`;
-  gMatches(aG).forEach(m => { h += ox2Row(m, admGroupRes, false, "setAdmPick"); });
-  h += "</div>";
+  const displayOrder = getDisplayOrder(admGroupRes, aG);
+  let h = '<div class="card"><div class="lbl">Actual Group ' + aG + ' final order</div>';
+  displayOrder.forEach((team, idx) => {
+    const pos = idx + 1;
+    const status = pos === 1 ? "Winner" : pos === 2 ? "Runner-up" : pos === 3 ? "3rd" : "Eliminated";
+    const upDisabled = (idx === 0);
+    const downDisabled = (idx === 3);
+    const rowBg = pos <= 2 ? "background:var(--success-bg)" : pos === 3 ? "background:var(--warn-bg)" : "background:var(--bg-secondary)";
+    const teamEsc = team.replace(/'/g, "\\'");
+    h += '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:0.5px solid var(--border);border-radius:8px;margin-bottom:5px;' + rowBg + '">';
+    h += '<span style="font-weight:600;width:22px;color:var(--text-sec)">' + pos + '.</span>';
+    h += '<div style="flex:1"><div style="font-weight:500">' + team + '</div><div style="font-size:11px;color:var(--text-sec)">' + status + '</div></div>';
+    h += '<button onclick="adminMoveTeam(\'' + aG + '\',\'' + teamEsc + '\',-1)" ' + (upDisabled ? 'disabled' : '') + ' style="padding:5px 11px">↑</button>';
+    h += '<button onclick="adminMoveTeam(\'' + aG + '\',\'' + teamEsc + '\',1)" ' + (downDisabled ? 'disabled' : '') + ' style="padding:5px 11px">↓</button>';
+    h += '</div>';
+  });
+  h += '</div>';
   document.getElementById("adm-gcontent").innerHTML = h;
 }
-function renderAStandings() {
-  const st = calcStandings(admGroupRes, aG);
-  let h = `<div class="card"><div class="lbl">Group ${aG} — standings</div>`;
-  st.forEach((t,i) => {
-    h += `<div class="trow"><span style="color:var(--text-sec);font-size:12px;width:16px">${i+1}.</span><span style="flex:1;font-size:13px;font-weight:500">${t.name}${i<2 ? '<span class="adv">advances</span>' : ""}</span><span style="font-size:11px;color:var(--text-sec);min-width:70px">${t.w}W ${t.d}D ${t.l}L</span><span style="font-size:14px;font-weight:500;min-width:24px;text-align:right">${t.pts}</span></div>`;
-  });
-  document.getElementById("adm-gstandings").innerHTML = h + "</div>";
+
+async function adminMoveTeam(g, teamName, direction) {
+  const displayOrder = getDisplayOrder(admGroupRes, g);
+  const idx = displayOrder.indexOf(teamName);
+  if (idx === -1) return;
+  const newIdx = idx + direction;
+  if (newIdx < 0 || newIdx > 3) return;
+  [displayOrder[idx], displayOrder[newIdx]] = [displayOrder[newIdx], displayOrder[idx]];
+  showSaving();
+  displayOrder.forEach((team, i) => { admGroupRes["rank_" + g + "_" + (i+1)] = team; });
+  // Invalidate thirds_advancing if needed
+  const adv = (admGroupRes.thirds_advancing || "").split(",").filter(s => s);
+  const validThirds = new Set(getThirds(admGroupRes).map(t => t.name));
+  const stillValid = adv.filter(t => validThirds.has(t));
+  if (stillValid.length !== adv.length) {
+    admGroupRes.thirds_advancing = stillValid.join(",");
+  }
+  const rows = displayOrder.map((team, i) => ({
+    match_id: "rank_" + g + "_" + (i+1), result: team
+  }));
+  try {
+    await sb.from("admin_group_results").upsert(rows, {onConflict: "match_id"});
+    if (stillValid.length !== adv.length) {
+      await sb.from("admin_group_results").upsert([{
+        match_id: "thirds_advancing", result: stillValid.join(",")
+      }], {onConflict: "match_id"});
+    }
+  } catch (e) { console.error("adminMoveTeam", e); }
+  renderAdm();
 }
 
-async function setAdmPick(id, val) {
-  admGroupRes[id] = val;
-  renderAGroup(); renderAStandings();
+function renderAdmThirds() {
+  const thirds = getThirds(admGroupRes);
+  const advancing = new Set((admGroupRes.thirds_advancing || "").split(",").filter(s => s));
+  let h = '<div class="card"><div class="lbl">Actual advancing thirds (' + advancing.size + '/8)</div>';
+  if (thirds.length === 0) {
+    h += '<div style="font-size:13px;color:var(--text-sec)">Complete all 12 group rankings first.</div>';
+  } else {
+    const sorted = thirds.slice().sort((a,b) => a.group.localeCompare(b.group));
+    sorted.forEach(t => {
+      const isSel = advancing.has(t.name);
+      const btnDisabled = !isSel && advancing.size >= 8;
+      const rowBg = isSel ? "background:var(--success-bg)" : "background:var(--bg-secondary)";
+      const teamEsc = t.name.replace(/'/g, "\\'");
+      h += '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border:0.5px solid var(--border);border-radius:8px;margin-bottom:5px;' + rowBg + '">';
+      h += '<span style="font-weight:600;font-size:12px;width:22px;color:var(--text-sec)">' + t.group + '</span>';
+      h += '<span style="flex:1;font-size:14px;font-weight:500">' + t.name + '</span>';
+      h += '<button onclick="adminToggleThird(\'' + teamEsc + '\')" ' + (btnDisabled ? 'disabled' : '') + ' style="padding:5px 12px;background:' + (isSel ? 'var(--primary)' : '#fff') + ';color:' + (isSel ? '#fff' : 'var(--text)') + ';border-color:' + (isSel ? 'var(--primary)' : 'var(--border-strong)') + '">' + (isSel ? '✓ In' : 'Out') + '</button>';
+      h += '</div>';
+    });
+  }
+  h += '</div>';
+  document.getElementById("adm-gstandings").innerHTML = h;
+}
+
+async function adminToggleThird(name) {
+  const cur = (admGroupRes.thirds_advancing || "").split(",").filter(s => s);
+  let next;
+  if (cur.includes(name)) next = cur.filter(t => t !== name);
+  else { if (cur.length >= 8) return; next = cur.concat([name]); }
   showSaving();
+  admGroupRes.thirds_advancing = next.join(",");
   try {
-    await sb.from("admin_group_results").upsert(
-      {match_id: id, result: val},
-      {onConflict: "match_id"}
-    );
-  } catch (e) { console.error("setAdmPick", e); }
+    await sb.from("admin_group_results").upsert([{
+      match_id: "thirds_advancing", result: next.join(",")
+    }], {onConflict: "match_id"});
+  } catch (e) { console.error("adminToggleThird", e); }
+  renderAdm();
 }
 
 function renderAdmKO() {
   const bracket = buildBracket(admGroupRes, admKoRes);
+  let h = '';
   const rounds = [
-    {label:"Round of 32",   matches: bracket.r32},
-    {label:"Round of 16",   matches: bracket.r16},
-    {label:"Quarter-finals",matches: bracket.qf},
-    {label:"Semi-finals",   matches: bracket.sf},
-    {label:"Third place",   matches: [bracket.bronze]},
-    {label:"Final",         matches: [bracket.final]},
+    {label:"Round of 32",    matches: bracket.r32},
+    {label:"Round of 16",    matches: bracket.r16},
+    {label:"Quarter-finals", matches: bracket.qf},
+    {label:"Semi-finals",    matches: bracket.sf},
+    {label:"Third place",    matches: [bracket.bronze]},
+    {label:"Final",          matches: [bracket.final]}
   ];
-  let h = "";
   rounds.forEach(({label, matches}) => {
-    h += `<div class="round-hdr">${label}</div>`;
+    h += '<div class="round-hdr">' + label + '</div>';
     matches.forEach(m => {
-      const isTBD = /Winner|loser|SF/.test(m.home) || /Winner|loser|SF/.test(m.away);
+      const isTBD = /Winner|loser|TBD|SF|3rd /.test(m.home) || /Winner|loser|TBD|SF|3rd /.test(m.away);
       const sel = admKoRes[m.id] || null;
-      const canClick = !isTBD;
-      const hCls = `ko-tm${sel === m.home ? " sel" : ""}${!canClick ? " disabled" : ""}${isTBD ? " tbd" : ""}`;
-      const aCls = `ko-tm${sel === m.away ? " sel" : ""}${!canClick ? " disabled" : ""}${isTBD ? " tbd" : ""}`;
-      const hClk = canClick ? `onclick="setAdmKo('${m.id}','${m.home.replace(/'/g,"\\'")}')"` : "";
-      const aClk = canClick ? `onclick="setAdmKo('${m.id}','${m.away.replace(/'/g,"\\'")}')"` : "";
-      h += `<div class="ko-match${isTBD ? " pending" : ""}"><div class="ko-teams-row"><div class="${hCls}" ${hClk}>${m.home}</div><div class="ko-vs">vs</div><div class="${aCls}" ${aClk}>${m.away}</div></div></div>`;
+      const hCls = "ko-tm" + (sel === m.home ? " sel" : "") + (isTBD ? " tbd" : "");
+      const aCls = "ko-tm" + (sel === m.away ? " sel" : "") + (isTBD ? " tbd" : "");
+      const hEsc = m.home.replace(/'/g, "\\'");
+      const aEsc = m.away.replace(/'/g, "\\'");
+      const hClk = !isTBD ? 'onclick="setAdmKo(\'' + m.id + '\',\'' + hEsc + '\')"' : "";
+      const aClk = !isTBD ? 'onclick="setAdmKo(\'' + m.id + '\',\'' + aEsc + '\')"' : "";
+      h += '<div class="ko-match' + (isTBD ? " pending" : "") + '"><div class="ko-teams-row"><div class="' + hCls + '" ' + hClk + '>' + m.home + '</div><div class="ko-vs">vs</div><div class="' + aCls + '" ' + aClk + '>' + m.away + '</div></div></div>';
     });
   });
   document.getElementById("adm-ko-content").innerHTML = h;
 }
 
 async function setAdmKo(id, team) {
-  admKoRes[id] = team;
-  renderAdmKO();
   showSaving();
+  admKoRes[id] = team;
   try {
-    await sb.from("admin_ko_results").upsert(
-      {match_id: id, winner: team},
-      {onConflict: "match_id"}
-    );
+    await sb.from("admin_ko_results").upsert([{match_id: id, winner: team}], {onConflict: "match_id"});
   } catch (e) { console.error("setAdmKo", e); }
+  renderAdmKO();
 }
 
 async function adminRecalc() {
-  const m = document.getElementById("adm-saved");
-  m.style.color = "var(--text-sec)";
-  m.textContent = "Loading…";
-  await loadSettings();
   await loadAdminResults();
   await loadAllForLeaderboard();
   computeScores();
-  m.style.color = "var(--success-text)";
-  m.textContent = "Scores recalculated!";
-  setTimeout(() => m.textContent = "", 3000);
+  renderAdm();
+  document.getElementById("adm-saved").textContent = "Scores recalculated.";
+  setTimeout(() => { document.getElementById("adm-saved").textContent = ""; }, 2000);
 }
 
-// --- Site password gate ---
+// ====== SITE PASSWORD GATE ======
+
 const SITE_PASSWORD = "S426";
 
 function showAppAfterGate() {
   document.getElementById("site-gate").style.display = "none";
-  if (!configIsValid()) {
-    document.getElementById("config-error").style.display = "block";
-    return;
-  }
-  document.getElementById("app-content").style.display = "block";
-  if (sb) boot();
+  boot();
 }
 
 function checkSitePw() {
-  const v = document.getElementById("site-pw").value.trim();
+  const v = (document.getElementById("site-pw").value || "").trim();
   if (v === SITE_PASSWORD) {
     localStorage.setItem("wc2026_site_pw_ok", "1");
     showAppAfterGate();
   } else {
-    document.getElementById("site-pw-msg").innerHTML = '<div style="color:#FFB4B4;font-size:13px">Wrong code. Try again.</div>';
-    document.getElementById("site-pw").value = "";
-    document.getElementById("site-pw").focus();
+    document.getElementById("site-pw-msg").textContent = "Wrong code.";
   }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  const inp = document.getElementById("site-pw");
-  if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") checkSitePw(); });
-});
-
 if (localStorage.getItem("wc2026_site_pw_ok") === "1") {
-  showAppAfterGate();
+  document.addEventListener("DOMContentLoaded", showAppAfterGate);
 } else {
-  document.getElementById("site-gate").style.display = "block";
+  document.addEventListener("DOMContentLoaded", () => {
+    document.getElementById("site-gate").style.display = "block";
+  });
 }
