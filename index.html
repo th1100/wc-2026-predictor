@@ -194,7 +194,7 @@ code{background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-famil
   <div class="hero">
     <div class="logo-ball">⚽</div>
     <h1>World Cup 2026 Predictor</h1>
-    <p>Pick 1 / X / 2 for every group match, choose the knockout winners, and crown your champion.</p>
+  <p><strong>Pick 1, X, or 2 for every group match</strong> — 1 means the home team wins, X is a draw, and 2 means the away team wins.<br><br>In the knockout rounds, simply tap the team you think will advance, all the way to the final. Finally in the "Special" tab, name the player you expect to be the tournament's top scorer.</p>
     <div id="home-cd" style="font-size:13px;font-weight:600;margin:1.25rem 0"></div>
     <div id="home-lock" style="display:none" class="lock-banner" style="justify-content:center">🔒 Predictions locked — tournament started!</div>
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
@@ -239,8 +239,8 @@ code{background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-famil
       <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Round of 16 winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">3 pts</div>
       <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Quarter-final winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">4 pts</div>
       <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Semi-final winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">5 pts</div>
-      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Correct finalist (each)</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">5 pts</div>
-      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Correct World Cup winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">10 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Third-place match winner</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">4 pts</div>
+      <div style="padding:4px 0;border-bottom:0.5px solid var(--border);color:var(--text-sec)">Final winner (champion)</div><div style="padding:4px 0;border-bottom:0.5px solid var(--border);font-weight:500;text-align:right">10 pts</div>
       <div style="padding:4px 0;color:var(--text-sec)">Correct top scorer</div><div style="padding:4px 0;font-weight:500;text-align:right">8 pts</div>
     </div>
   </div>
@@ -298,10 +298,11 @@ code{background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-famil
     </div>
     <div id="sec-special" style="display:none">
       <div class="card">
-        <div style="font-size:14px;font-weight:600;margin-bottom:10px">Special picks</div>
-        <div class="trow"><span style="flex:1;font-size:13px">World Cup winner</span><select id="pick-winner" style="width:165px"><option value="">-- Select --</option></select></div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:10px">Top scorer pick</div>
+        <div style="font-size:12px;color:var(--text-sec);margin-bottom:10px">Name the player you expect to score the most goals during the tournament. Correct guess = 8 pts.</div>
         <div class="trow"><span style="flex:1;font-size:13px">Top scorer</span><input type="text" id="pick-topscorer" placeholder="e.g. Mbappé" style="width:165px"></div>
       </div>
+    </div>
     </div>
     <div class="card" id="submit-card" style="margin-top:1rem">
       <div style="font-size:14px;font-weight:600;margin-bottom:6px">Ready to lock in your picks?</div>
@@ -332,6 +333,10 @@ code{background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-famil
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:1rem">
       <span style="font-weight:600;font-size:15px;color:#fff">Admin panel</span>
       <button style="margin-left:auto;font-size:12px" onclick="adminOut()">Log out</button>
+   </div>
+    <div class="card">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:8px">Players (<span id="adm-user-count">0</span>) <button style="margin-left:auto;font-size:11px;padding:3px 8px" onclick="loadAdminUsers()">Refresh</button></div>
+      <div id="adm-user-list"><div style="font-size:12px;color:var(--text-sec)">Loading…</div></div>
     </div>
     <div class="card">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
