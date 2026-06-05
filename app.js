@@ -189,26 +189,19 @@ function calcStandings(res, g, tbOrder) {
   return sorted;
 }
 
-function buildR32(gRes, tiebreakers) {
-  const tb = tiebreakers || {};
+function buildR32(gRes) {
   const top = {}, sec = {};
   const thirds = [];
 
   Object.keys(GROUPS).forEach(g => {
-    const st = calcStandings(gRes, g, tb['g_' + g]);
+    const st = calcStandings(gRes, g);
     top[g] = st[0] ? st[0].name : "?";
     sec[g] = st[1] ? st[1].name : "?";
     if (st[2]) thirds.push({group: g, name: st[2].name, pts: st[2].pts});
   });
 
-  const tbT = tb.t || [];
   thirds.sort((a,b) => {
     if (b.pts !== a.pts) return b.pts - a.pts;
-    const aIdx = tbT.indexOf(a.name);
-    const bIdx = tbT.indexOf(b.name);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
     return a.name.localeCompare(b.name);
   });
   const top8 = thirds.slice(0, 8);
