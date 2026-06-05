@@ -133,7 +133,7 @@ async function loadAllForLeaderboard() {
 }
 
 // --- Standings & bracket logic ---
-function calcStandings(res, g) {
+function calcStandings(res, g, tbOrder) {
   const teams = GROUPS[g].map(n => ({name:n, pts:0, w:0, d:0, l:0}));
   const idx = {};
   teams.forEach((t,i) => idx[t.name] = i);
@@ -144,7 +144,49 @@ function calcStandings(res, g) {
     else if (r === "2") { ta.pts+=3; ta.w++; th.l++; }
     else if (r === "x") { th.pts++; ta.pts++; th.d++; ta.d++; }
   });
-  return teams.sort((a,b) => b.pts - a.pts);
+
+  teams.sort((a,b) => b.pts - a.pts);
+
+  function userOrderCompare(a, b) {
+    if (!tbOrder || !tbOrder.length) return a.name.localeCompare(b.name);
+    const aIdx = tbOrder.indexOf(a.name);
+    const bIdx = tbOrder.indexOf(b.name);
+    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
+    if (aIdx !== -1) return -1;
+    if (bIdx !== -1) return 1;
+    return a.name.localeCompare(b.name);
+  }
+
+  const sorted = [];
+  let i = 0;
+  while (i < teams.length) {
+    let j = i;
+    while (j + 1 < teams.length && teams[j+1].pts === teams[i].pts) j++;
+    if (j > i) {
+      const tied = teams.slice(i, j+1);
+      const h2h = {};
+      tied.forEach(t => h2h[t.name] = 0);
+      const tiedNames = new Set(tied.map(t => t.name));
+      gMatches(g).forEach(m => {
+        if (!tiedNames.has(m.home) || !tiedNames.has(m.away)) return;
+        const r = res[m.id]; if (!r) return;
+        if (r === "1") h2h[m.home] += 3;
+        else if (r === "2") h2h[m.away] += 3;
+        else { h2h[m.home] += 1; h2h[m.away] += 1; }
+      });
+      tied.sort((a, b) => {
+        if (h2h[b.name] !== h2h[a.name]) return h2h[b.name] - h2h[a.name];
+        return userOrderCompare(a, b);
+      });
+      tied.forEach(t => t.h2hPts = h2h[t.name]);
+      sorted.push(...tied);
+    } else {
+      teams[i].h2hPts = 0;
+      sorted.push(teams[i]);
+    }
+    i = j + 1;
+  }
+  return sorted;
 }
 
 function buildR32(gRes) {
