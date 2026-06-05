@@ -168,7 +168,17 @@ code{background:var(--bg-secondary);padding:2px 6px;border-radius:4px;font-famil
   <h2>⚠️ Setup required</h2>
   <p>Please edit <code>config.js</code> and paste your Supabase URL and Publishable Key, then redeploy.</p>
 </div>
-
+<!-- Site access gate -->
+<div id="site-gate" class="error-page" style="display:none">
+  <div style="font-size:48px;margin-bottom:1rem">🔒</div>
+  <h2 style="color:#fff">Private pool</h2>
+  <p style="color:rgba(255,255,255,0.85);margin-bottom:1.5rem">Enter the access code to continue.</p>
+  <div style="max-width:280px;margin:0 auto">
+    <input type="password" id="site-pw" placeholder="Access code" style="width:100%;margin-bottom:10px;text-align:center" autocomplete="off">
+    <button class="primary" style="width:100%" onclick="checkSitePw()">Enter</button>
+    <div id="site-pw-msg" style="margin-top:8px"></div>
+  </div>
+</div>
 <div id="app-content" style="display:none">
 
 <div class="nav" id="main-nav">
