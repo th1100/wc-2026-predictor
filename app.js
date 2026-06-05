@@ -133,7 +133,7 @@ async function loadAllForLeaderboard() {
 }
 
 // --- Standings & bracket logic ---
-function calcStandings(res, g, tbOrder) {
+function calcStandings(res, g) {
   const teams = GROUPS[g].map(n => ({name:n, pts:0, w:0, d:0, l:0}));
   const idx = {};
   teams.forEach((t,i) => idx[t.name] = i);
@@ -144,77 +144,21 @@ function calcStandings(res, g, tbOrder) {
     else if (r === "2") { ta.pts+=3; ta.w++; th.l++; }
     else if (r === "x") { th.pts++; ta.pts++; th.d++; ta.d++; }
   });
-
-  teams.sort((a,b) => b.pts - a.pts);
-
-  // tbOrder is optional array of team names in user's preferred order
-  function userOrderCompare(a, b) {
-    if (!tbOrder || !tbOrder.length) return a.name.localeCompare(b.name);
-    const aIdx = tbOrder.indexOf(a.name);
-    const bIdx = tbOrder.indexOf(b.name);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
-    return a.name.localeCompare(b.name);
-  }
-
-  // Head-to-head tiebreaker for teams tied on points
-  const sorted = [];
-  let i = 0;
-  while (i < teams.length) {
-    let j = i;
-    while (j + 1 < teams.length && teams[j+1].pts === teams[i].pts) j++;
-    if (j > i) {
-      const tied = teams.slice(i, j+1);
-      const h2h = {};
-      tied.forEach(t => h2h[t.name] = 0);
-      const tiedNames = new Set(tied.map(t => t.name));
-      gMatches(g).forEach(m => {
-        if (!tiedNames.has(m.home) || !tiedNames.has(m.away)) return;
-        const r = res[m.id]; if (!r) return;
-        if (r === "1") h2h[m.home] += 3;
-        else if (r === "2") h2h[m.away] += 3;
-        else { h2h[m.home] += 1; h2h[m.away] += 1; }
-      });
-      tied.sort((a, b) => {
-        if (h2h[b.name] !== h2h[a.name]) return h2h[b.name] - h2h[a.name];
-        return userOrderCompare(a, b);
-      });
-      // Mark h2h info for residual-tie detection
-      tied.forEach(t => t.h2hPts = h2h[t.name]);
-      sorted.push(...tied);
-    } else {
-      teams[i].h2hPts = 0;
-      sorted.push(teams[i]);
-    }
-    i = j + 1;
-  }
-  return sorted;
+  return teams.sort((a,b) => b.pts - a.pts);
 }
 
-function buildR32(gRes, tiebreakers) {
-  const tb = tiebreakers || {};
+function buildR32(gRes) {
   const top = {}, sec = {};
   const thirds = [];
 
   Object.keys(GROUPS).forEach(g => {
-    const st = calcStandings(gRes, g, tb['g_' + g]);
+    const st = calcStandings(gRes, g);
     top[g] = st[0] ? st[0].name : "?";
     sec[g] = st[1] ? st[1].name : "?";
     if (st[2]) thirds.push({group: g, name: st[2].name, pts: st[2].pts});
   });
 
-  // Sort thirds: points desc, then user's thirds order, then alphabetical
-  const tbT = tb.t || [];
-  thirds.sort((a,b) => {
-    if (b.pts !== a.pts) return b.pts - a.pts;
-    const aIdx = tbT.indexOf(a.name);
-    const bIdx = tbT.indexOf(b.name);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
-    return a.name.localeCompare(b.name);
-  });
+  thirds.sort((a,b) => b.pts - a.pts);
   const top8 = thirds.slice(0, 8);
 
   // FIFA's official third-place slot constraints (Annex C)
@@ -245,7 +189,6 @@ function buildR32(gRes, tiebreakers) {
       delete assignment[slotId];
       usedGroups.delete(cand.group);
     }
-    // Allow skipping if not enough qualified thirds
     const remaining = top8.length - usedGroups.size;
     const slotsLeft = slotIds.length - idx;
     if (remaining < slotsLeft) {
@@ -260,48 +203,48 @@ function buildR32(gRes, tiebreakers) {
 
   // FIFA's official R32 structure (matches 73-88)
   return [
-    {id:"r32_1",  home: teamOr(sec.A, "Group A 2nd (TBD)"), away: teamOr(sec.B, "Group B 2nd (TBD)")},   // M73
-    {id:"r32_2",  home: teamOr(top.E, "Group E 1st (TBD)"), away: tb('m74')},                            // M74
-    {id:"r32_3",  home: teamOr(top.F, "Group F 1st (TBD)"), away: teamOr(sec.C, "Group C 2nd (TBD)")},   // M75
-    {id:"r32_4",  home: teamOr(top.C, "Group C 1st (TBD)"), away: teamOr(sec.F, "Group F 2nd (TBD)")},   // M76
-    {id:"r32_5",  home: teamOr(top.I, "Group I 1st (TBD)"), away: tb('m77')},                            // M77
-    {id:"r32_6",  home: teamOr(sec.E, "Group E 2nd (TBD)"), away: teamOr(sec.I, "Group I 2nd (TBD)")},   // M78
-    {id:"r32_7",  home: teamOr(top.A, "Group A 1st (TBD)"), away: tb('m79')},                            // M79
-    {id:"r32_8",  home: teamOr(top.L, "Group L 1st (TBD)"), away: tb('m80')},                            // M80
-    {id:"r32_9",  home: teamOr(top.D, "Group D 1st (TBD)"), away: tb('m81')},                            // M81
-    {id:"r32_10", home: teamOr(top.G, "Group G 1st (TBD)"), away: tb('m82')},                            // M82
-    {id:"r32_11", home: teamOr(sec.K, "Group K 2nd (TBD)"), away: teamOr(sec.L, "Group L 2nd (TBD)")},   // M83
-    {id:"r32_12", home: teamOr(top.H, "Group H 1st (TBD)"), away: teamOr(sec.J, "Group J 2nd (TBD)")},   // M84
-    {id:"r32_13", home: teamOr(top.B, "Group B 1st (TBD)"), away: tb('m85')},                            // M85
-    {id:"r32_14", home: teamOr(top.J, "Group J 1st (TBD)"), away: teamOr(sec.H, "Group H 2nd (TBD)")},   // M86
-    {id:"r32_15", home: teamOr(top.K, "Group K 1st (TBD)"), away: tb('m87')},                            // M87
-    {id:"r32_16", home: teamOr(sec.D, "Group D 2nd (TBD)"), away: teamOr(sec.G, "Group G 2nd (TBD)")},   // M88
+    {id:"r32_1",  home: teamOr(sec.A, "Group A 2nd (TBD)"), away: teamOr(sec.B, "Group B 2nd (TBD)")},
+    {id:"r32_2",  home: teamOr(top.E, "Group E 1st (TBD)"), away: tb('m74')},
+    {id:"r32_3",  home: teamOr(top.F, "Group F 1st (TBD)"), away: teamOr(sec.C, "Group C 2nd (TBD)")},
+    {id:"r32_4",  home: teamOr(top.C, "Group C 1st (TBD)"), away: teamOr(sec.F, "Group F 2nd (TBD)")},
+    {id:"r32_5",  home: teamOr(top.I, "Group I 1st (TBD)"), away: tb('m77')},
+    {id:"r32_6",  home: teamOr(sec.E, "Group E 2nd (TBD)"), away: teamOr(sec.I, "Group I 2nd (TBD)")},
+    {id:"r32_7",  home: teamOr(top.A, "Group A 1st (TBD)"), away: tb('m79')},
+    {id:"r32_8",  home: teamOr(top.L, "Group L 1st (TBD)"), away: tb('m80')},
+    {id:"r32_9",  home: teamOr(top.D, "Group D 1st (TBD)"), away: tb('m81')},
+    {id:"r32_10", home: teamOr(top.G, "Group G 1st (TBD)"), away: tb('m82')},
+    {id:"r32_11", home: teamOr(sec.K, "Group K 2nd (TBD)"), away: teamOr(sec.L, "Group L 2nd (TBD)")},
+    {id:"r32_12", home: teamOr(top.H, "Group H 1st (TBD)"), away: teamOr(sec.J, "Group J 2nd (TBD)")},
+    {id:"r32_13", home: teamOr(top.B, "Group B 1st (TBD)"), away: tb('m85')},
+    {id:"r32_14", home: teamOr(top.J, "Group J 1st (TBD)"), away: teamOr(sec.H, "Group H 2nd (TBD)")},
+    {id:"r32_15", home: teamOr(top.K, "Group K 1st (TBD)"), away: tb('m87')},
+    {id:"r32_16", home: teamOr(sec.D, "Group D 2nd (TBD)"), away: teamOr(sec.G, "Group G 2nd (TBD)")},
   ];
 }
 
-function buildBracket(gRes, koRes, tiebreakers) {
-  const r32 = buildR32(gRes, tiebreakers);
+function buildBracket(gRes, koRes) {
+  const r32 = buildR32(gRes);
 
   // FIFA's official knockout pairings (matches 89-102)
   const R16_PAIRS = [
-    {id:'r16_1', from:['r32_1', 'r32_3']},     // M90
-    {id:'r16_2', from:['r32_2', 'r32_5']},     // M89
-    {id:'r16_3', from:['r32_4', 'r32_6']},     // M91
-    {id:'r16_4', from:['r32_7', 'r32_8']},     // M92
-    {id:'r16_5', from:['r32_11', 'r32_12']},   // M93
-    {id:'r16_6', from:['r32_9', 'r32_10']},    // M94
-    {id:'r16_7', from:['r32_14', 'r32_16']},   // M95
-    {id:'r16_8', from:['r32_13', 'r32_15']},   // M96
+    {id:'r16_1', from:['r32_1', 'r32_3']},
+    {id:'r16_2', from:['r32_2', 'r32_5']},
+    {id:'r16_3', from:['r32_4', 'r32_6']},
+    {id:'r16_4', from:['r32_7', 'r32_8']},
+    {id:'r16_5', from:['r32_11', 'r32_12']},
+    {id:'r16_6', from:['r32_9', 'r32_10']},
+    {id:'r16_7', from:['r32_14', 'r32_16']},
+    {id:'r16_8', from:['r32_13', 'r32_15']},
   ];
   const QF_PAIRS = [
-    {id:'qf_1', from:['r16_2', 'r16_1']},   // M97
-    {id:'qf_2', from:['r16_5', 'r16_6']},   // M98
-    {id:'qf_3', from:['r16_3', 'r16_4']},   // M99
-    {id:'qf_4', from:['r16_7', 'r16_8']},   // M100
+    {id:'qf_1', from:['r16_2', 'r16_1']},
+    {id:'qf_2', from:['r16_5', 'r16_6']},
+    {id:'qf_3', from:['r16_3', 'r16_4']},
+    {id:'qf_4', from:['r16_7', 'r16_8']},
   ];
   const SF_PAIRS = [
-    {id:'sf_1', from:['qf_1', 'qf_2']},   // M101
-    {id:'sf_2', from:['qf_3', 'qf_4']},   // M102
+    {id:'sf_1', from:['qf_1', 'qf_2']},
+    {id:'sf_2', from:['qf_3', 'qf_4']},
   ];
 
   function buildRound(pairs) {
@@ -477,6 +420,8 @@ async function setKoPick(id, team) {
   } catch (e) { console.error("setKoPick", e); }
 }
 
+
+
 async function saveTopScorer() {
   if (!CU || isUserLocked()) return;
   const t = document.getElementById("pick-topscorer").value.trim();
@@ -526,6 +471,7 @@ function renderPick() {
   const lk = isUserLocked();
   document.getElementById("pick-submitted-banner").style.display = CU.submitted ? "flex" : "none";
   document.getElementById("pick-lock-banner").style.display = (isTimeLocked() && !CU.submitted) ? "flex" : "none";
+  
   const tsInput = document.getElementById("pick-topscorer");
   tsInput.value = CU.top_scorer || "";
   tsInput.disabled = lk;
@@ -566,103 +512,18 @@ function renderPickGroup() {
 }
 
 function renderPickStandings() {
-  if (!CU) return;
-  const tbForGroup = (CU.tiebreakers || {})['g_' + vG];
-  const st = calcStandings(userPicks, vG, tbForGroup);
-  const lk = isUserLocked();
-
-  // Detect residual ties (teams adjacent with same pts AND same h2h)
-  function isResidualTie(i) {
-    if (i === 0) return false;
-    return st[i].pts === st[i-1].pts && (st[i].h2hPts || 0) === (st[i-1].h2hPts || 0);
-  }
-  const hasAnyTie = st.some((_, i) => isResidualTie(i));
-
+  const st = calcStandings(userPicks, vG);
   let h = `<div class="card"><div class="lbl">Group ${vG} — projected standings</div>`;
-  st.forEach((t, i) => {
-    const tied = isResidualTie(i);
-    const upBtn = (tied && !lk)
-      ? `<button onclick="swapGroupOrder('${vG}','${t.name.replace(/'/g,"\\'")}')" title="Move up" style="padding:2px 7px;font-size:12px;margin-right:4px;background:#fff">↑</button>`
-      : '';
-    h += `<div class="trow"><span style="color:var(--text-sec);font-size:12px;width:16px">${i+1}.</span><span style="flex:1;font-size:13px;font-weight:500">${t.name}${i<2 ? '<span class="adv">advances</span>' : ""}</span>${upBtn}<span style="font-size:11px;color:var(--text-sec);min-width:70px">${t.w}W ${t.d}D ${t.l}L</span><span style="font-size:14px;font-weight:500;min-width:24px;text-align:right">${t.pts}</span></div>`;
+  st.forEach((t,i) => {
+    h += `<div class="trow"><span style="color:var(--text-sec);font-size:12px;width:16px">${i+1}.</span><span style="flex:1;font-size:13px;font-weight:500">${t.name}${i<2 ? '<span class="adv">advances</span>' : ""}</span><span style="font-size:11px;color:var(--text-sec);min-width:70px">${t.w}W ${t.d}D ${t.l}L</span><span style="font-size:14px;font-weight:500;min-width:24px;text-align:right">${t.pts}</span></div>`;
   });
-  if (hasAnyTie && !lk) {
-    h += `<div style="font-size:11px;color:var(--text-sec);background:var(--bg-secondary);padding:8px 10px;border-radius:6px;margin-top:10px;line-height:1.5">⚖️ <strong>Tied teams</strong> — points and head-to-head are equal. FIFA next uses: overall goal difference → goals scored → fair play → FIFA ranking. Since we don't track goals, use ↑ to pick your preferred order.</div>`;
-  }
   document.getElementById("pick-standings").innerHTML = h + "</div>";
-}
-
-async function swapGroupOrder(g, teamName) {
-  if (!CU || isUserLocked()) return;
-  const tb = CU.tiebreakers || {};
-  const tbForGroup = (tb['g_' + g] || []).slice();
-  const st = calcStandings(userPicks, g, tbForGroup);
-  const curIdx = st.findIndex(t => t.name === teamName);
-  if (curIdx <= 0) return;
-  const above = st[curIdx - 1].name;
-
-  // Build a new tiebreaker order: keep current sorted order but swap teamName with above
-  const newOrder = st.map(t => t.name);
-  newOrder[curIdx - 1] = teamName;
-  newOrder[curIdx] = above;
-
-  tb['g_' + g] = newOrder;
-  CU.tiebreakers = tb;
-  showSaving();
-  try { await sb.from("users").update({tiebreakers: tb}).eq("id", CU.id); }
-  catch (e) { console.error("swapGroupOrder", e); }
-  renderPickGroup();
-  renderPickStandings();
-  renderPickGTabs();
-  updateProgress();
 }
 
 function renderPickKO() {
   if (!CU) return;
-  const tb = CU.tiebreakers || {};
-  const bracket = buildBracket(userPicks, userKoPicks, tb);
+  const bracket = buildBracket(userPicks, userKoPicks);
   const lk = isUserLocked();
-
-  // Build the thirds ranking section
-  const thirds = [];
-  Object.keys(GROUPS).forEach(g => {
-    const st = calcStandings(userPicks, g, tb['g_' + g]);
-    if (st[2]) thirds.push({group: g, name: st[2].name, pts: st[2].pts});
-  });
-  const tbT = tb.t || [];
-  thirds.sort((a,b) => {
-    if (b.pts !== a.pts) return b.pts - a.pts;
-    const aIdx = tbT.indexOf(a.name);
-    const bIdx = tbT.indexOf(b.name);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  let thirdsH = '';
-  if (thirds.length > 0) {
-    function thirdsTie(i) {
-      return i > 0 && thirds[i].pts === thirds[i-1].pts;
-    }
-    const anyTie = thirds.some((_, i) => thirdsTie(i));
-    thirdsH = `<div class="card" style="margin-bottom:14px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">Third-place teams ranking <span style="font-size:11px;color:var(--text-sec);font-weight:400">(top 8 advance to Round of 32)</span></div>`;
-    thirds.forEach((t, i) => {
-      const advances = i < 8;
-      const tied = thirdsTie(i);
-      const upBtn = (tied && !lk)
-        ? `<button onclick="swapThirdsOrder('${t.name.replace(/'/g,"\\'")}')" title="Move up" style="padding:2px 7px;font-size:12px;margin-right:4px;background:#fff">↑</button>`
-        : '';
-      const rowStyle = advances ? '' : 'opacity:0.5';
-      const badge = advances ? '<span class="adv" style="background:var(--success-bg);color:var(--success-text)">advances</span>' : '';
-      thirdsH += `<div class="trow" style="${rowStyle}"><span style="color:var(--text-sec);font-size:12px;width:20px">${i+1}.</span><span style="flex:1;font-size:13px;font-weight:500">${t.name} <span style="font-size:11px;color:var(--text-sec);font-weight:400">(${t.group})</span>${badge}</span>${upBtn}<span style="font-size:13px;font-weight:600;min-width:36px;text-align:right">${t.pts} pts</span></div>`;
-    });
-    if (anyTie && !lk) {
-      thirdsH += `<div style="font-size:11px;color:var(--text-sec);background:var(--bg-secondary);padding:8px 10px;border-radius:6px;margin-top:10px;line-height:1.5">⚖️ <strong>Tied teams</strong> — points equal and no head-to-head between groups. FIFA uses: overall goal difference → goals scored → fair play → FIFA ranking. Pick your order with ↑.</div>`;
-    }
-    thirdsH += '</div>';
-  }
-
   const rounds = [
     {label:"Round of 32",   pts:"2 pts", matches: bracket.r32},
     {label:"Round of 16",   pts:"3 pts", matches: bracket.r16},
@@ -671,7 +532,7 @@ function renderPickKO() {
     {label:"Third place",   pts:"4 pts", matches: [bracket.bronze]},
     {label:"Final",         pts:"Finalist 5 pts · Champion 10 pts", matches: [bracket.final]},
   ];
-  let h = thirdsH;
+  let h = "";
   rounds.forEach(({label, pts, matches}) => {
     h += `<div class="round-hdr">${label}<span class="pts-badge">${pts}</span></div>`;
     matches.forEach(m => {
@@ -686,44 +547,6 @@ function renderPickKO() {
     });
   });
   document.getElementById("pick-ko-content").innerHTML = h;
-}
-
-async function swapThirdsOrder(teamName) {
-  if (!CU || isUserLocked()) return;
-  const tb = CU.tiebreakers || {};
-  const tbT = (tb.t || []).slice();
-
-  // Recompute current thirds order
-  const thirds = [];
-  Object.keys(GROUPS).forEach(g => {
-    const st = calcStandings(userPicks, g, tb['g_' + g]);
-    if (st[2]) thirds.push({group: g, name: st[2].name, pts: st[2].pts});
-  });
-  thirds.sort((a,b) => {
-    if (b.pts !== a.pts) return b.pts - a.pts;
-    const aIdx = tbT.indexOf(a.name);
-    const bIdx = tbT.indexOf(b.name);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  const idx = thirds.findIndex(t => t.name === teamName);
-  if (idx <= 0) return;
-  const above = thirds[idx - 1].name;
-
-  const newOrder = thirds.map(t => t.name);
-  newOrder[idx - 1] = teamName;
-  newOrder[idx] = above;
-  tb.t = newOrder;
-  CU.tiebreakers = tb;
-
-  showSaving();
-  try { await sb.from("users").update({tiebreakers: tb}).eq("id", CU.id); }
-  catch (e) { console.error("swapThirdsOrder", e); }
-  renderPickKO();
-  updateProgress();
 }
 
 function updateProgress() {
@@ -744,24 +567,15 @@ function updateSubmitState(done, total) {
   if (CU.submitted) { submitCard.style.display = "none"; return; }
   if (isTimeLocked()) { submitCard.style.display = "none"; return; }
   submitCard.style.display = "";
-
-  // Check group picks
   const groupsMissing = total - done;
-
-  // Check KO picks — required: r32 (16) + r16 (8) + qf (4) + sf (2) + bronze + final = 32
-  // But teams in later rounds depend on earlier picks, so we just count how many are filled
   const koTotal = 32;
   const koDone = Object.keys(userKoPicks).filter(k => userKoPicks[k]).length;
   const koMissing = koTotal - koDone;
-
-  // Top scorer required
   const tsMissing = !CU.top_scorer || !CU.top_scorer.trim();
-
   const missing = [];
   if (groupsMissing > 0) missing.push(`${groupsMissing} group match${groupsMissing===1?"":"es"}`);
   if (koMissing > 0) missing.push(`${koMissing} knockout pick${koMissing===1?"":"s"}`);
   if (tsMissing) missing.push("top scorer");
-
   if (missing.length > 0) {
     btn.disabled = true;
     status.innerHTML = `Still missing: <strong>${missing.join(", ")}</strong>. Fill everything to unlock submit.`;
@@ -791,17 +605,15 @@ function computeScores() {
   });
 
   // Advancement points
-  const adminTb = settings.admin_tiebreakers ? (function(){ try { return JSON.parse(settings.admin_tiebreakers); } catch(e) { return {}; } })() : {};
   const realAdv = {};
   Object.keys(GROUPS).forEach(g => {
-    realAdv[g] = calcStandings(admGroupRes, g, adminTb['g_' + g]).slice(0,2).map(t => t.name);
+    realAdv[g] = calcStandings(admGroupRes, g).slice(0,2).map(t => t.name);
   });
   allUsers.forEach(u => {
     const userPicksMap = allUserPicks[u.id] || {};
-    const userTb = u.tiebreakers || {};
     const predAdv = {};
     Object.keys(GROUPS).forEach(g => {
-      predAdv[g] = calcStandings(userPicksMap, g, userTb['g_' + g]).slice(0,2).map(t => t.name);
+      predAdv[g] = calcStandings(userPicksMap, g).slice(0,2).map(t => t.name);
     });
     Object.keys(GROUPS).forEach(g => {
       predAdv[g].forEach(t => {
@@ -814,14 +626,13 @@ function computeScores() {
   });
 
   // KO match winner points
-  const realBracket = buildBracket(admGroupRes, admKoRes, adminTb);
+  const realBracket = buildBracket(admGroupRes, admKoRes);
   ["r32","r16","qf","sf"].forEach(k => {
     const pts = KO_PTS[k];
     realBracket[k].forEach(rm => {
       const realW = admKoRes[rm.id]; if (!realW) return;
       allUsers.forEach(u => {
-        const userTb = u.tiebreakers || {};
-        const userBracket = buildBracket(allUserPicks[u.id] || {}, allUserKoPicks[u.id] || {}, userTb);
+        const userBracket = buildBracket(allUserPicks[u.id] || {}, allUserKoPicks[u.id] || {});
         const userM = userBracket[k].find(um => um.id === rm.id);
         if (!userM) return;
         const userW = (allUserKoPicks[u.id] || {})[userM.id];
@@ -844,6 +655,8 @@ function computeScores() {
       }
     });
   }
+
+  
 
   // Top scorer
   if (settings.top_scorer_result) {
@@ -871,13 +684,13 @@ function renderBoard() {
   lb.innerHTML = sorted.map((u,i) => {
     const sc = scoresByUser[u.id] || {total:0,group:0,adv:0,ko:0,spec:0};
     const subBadge = u.submitted ? '<span class="badge bg" style="margin-left:6px;font-size:10px">submitted</span>' : "";
-    const champPick = (allUserKoPicks[u.id] || {})["final"];
+   const champPick = (allUserKoPicks[u.id] || {})["final"];
     return `<div class="lb-row"><div class="av ${i<3?rc[i]:"avn"}">${i<3?ri[i]:i+1}</div><div><div style="font-size:14px;font-weight:500">${u.name}${subBadge}</div><div style="font-size:11px;color:var(--text-sec);margin-top:1px">Group: ${sc.group} · Adv: ${sc.adv} · KO: ${sc.ko} · Specials: ${sc.spec}</div><div style="font-size:11px;color:var(--text-tert)">Champion pick: ${champPick || "—"} · Top scorer: ${u.top_scorer || "—"}</div></div><div style="text-align:right"><div style="font-size:18px;font-weight:500">${sc.total}</div><div style="font-size:11px;color:var(--text-sec)">pts</div></div></div>`;
   }).join("");
 
   const wc = {}, tc = {};
   allUsers.forEach(u => {
-    const champ = (allUserKoPicks[u.id] || {})["final"];
+const champ = (allUserKoPicks[u.id] || {})["final"];
     if (champ) wc[champ] = (wc[champ] || 0) + 1;
     if (u.top_scorer) { const k = u.top_scorer.toLowerCase(); tc[k] = (tc[k] || 0) + 1; }
   });
@@ -1001,8 +814,7 @@ function renderAGroup() {
   document.getElementById("adm-gcontent").innerHTML = h;
 }
 function renderAStandings() {
-  const adminTb = settings.admin_tiebreakers ? (function(){ try { return JSON.parse(settings.admin_tiebreakers); } catch(e) { return {}; } })() : {};
-  const st = calcStandings(admGroupRes, aG, adminTb['g_' + aG]);
+  const st = calcStandings(admGroupRes, aG);
   let h = `<div class="card"><div class="lbl">Group ${aG} — standings</div>`;
   st.forEach((t,i) => {
     h += `<div class="trow"><span style="color:var(--text-sec);font-size:12px;width:16px">${i+1}.</span><span style="flex:1;font-size:13px;font-weight:500">${t.name}${i<2 ? '<span class="adv">advances</span>' : ""}</span><span style="font-size:11px;color:var(--text-sec);min-width:70px">${t.w}W ${t.d}D ${t.l}L</span><span style="font-size:14px;font-weight:500;min-width:24px;text-align:right">${t.pts}</span></div>`;
@@ -1023,8 +835,7 @@ async function setAdmPick(id, val) {
 }
 
 function renderAdmKO() {
-  const adminTb = settings.admin_tiebreakers ? (function(){ try { return JSON.parse(settings.admin_tiebreakers); } catch(e) { return {}; } })() : {};
-  const bracket = buildBracket(admGroupRes, admKoRes, adminTb);
+  const bracket = buildBracket(admGroupRes, admKoRes);
   const rounds = [
     {label:"Round of 32",   matches: bracket.r32},
     {label:"Round of 16",   matches: bracket.r16},
@@ -1100,13 +911,11 @@ function checkSitePw() {
   }
 }
 
-// Allow Enter key to submit
 document.addEventListener("DOMContentLoaded", () => {
   const inp = document.getElementById("site-pw");
   if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") checkSitePw(); });
 });
 
-// On load: either show app or show gate
 if (localStorage.getItem("wc2026_site_pw_ok") === "1") {
   showAppAfterGate();
 } else {
