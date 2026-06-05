@@ -341,6 +341,7 @@ async function setKoPick(id, team) {
   if (!CU || isUserLocked()) return;
   userKoPicks[id] = team;
   renderPickKO();
+  updateProgress();
   showSaving();
   try {
     await sb.from("ko_picks").upsert(
@@ -350,19 +351,13 @@ async function setKoPick(id, team) {
   } catch (e) { console.error("setKoPick", e); }
 }
 
-async function saveWinner() {
-  if (!CU || isUserLocked()) return;
-  const w = document.getElementById("pick-winner").value;
-  CU.winner = w;
-  showSaving();
-  try { await sb.from("users").update({winner: w}).eq("id", CU.id); }
-  catch (e) { console.error("saveWinner", e); }
-}
+
 
 async function saveTopScorer() {
   if (!CU || isUserLocked()) return;
   const t = document.getElementById("pick-topscorer").value.trim();
   CU.top_scorer = t;
+  updateProgress();
   showSaving();
   try { await sb.from("users").update({top_scorer: t}).eq("id", CU.id); }
   catch (e) { console.error("saveTopScorer", e); }
@@ -407,11 +402,7 @@ function renderPick() {
   const lk = isUserLocked();
   document.getElementById("pick-submitted-banner").style.display = CU.submitted ? "flex" : "none";
   document.getElementById("pick-lock-banner").style.display = (isTimeLocked() && !CU.submitted) ? "flex" : "none";
-  const ws = document.getElementById("pick-winner");
-  ws.innerHTML = '<option value="">-- Select --</option>' +
-    ALL_TEAMS.map(t => `<option value="${t}"${CU.winner === t ? " selected" : ""}>${t}</option>`).join("");
-  ws.disabled = lk;
-  ws.onchange = saveWinner;
+  
   const tsInput = document.getElementById("pick-topscorer");
   tsInput.value = CU.top_scorer || "";
   tsInput.disabled = lk;
@@ -507,12 +498,21 @@ function updateSubmitState(done, total) {
   if (CU.submitted) { submitCard.style.display = "none"; return; }
   if (isTimeLocked()) { submitCard.style.display = "none"; return; }
   submitCard.style.display = "";
-  if (done < total) {
+  const groupsMissing = total - done;
+  const koTotal = 32;
+  const koDone = Object.keys(userKoPicks).filter(k => userKoPicks[k]).length;
+  const koMissing = koTotal - koDone;
+  const tsMissing = !CU.top_scorer || !CU.top_scorer.trim();
+  const missing = [];
+  if (groupsMissing > 0) missing.push(`${groupsMissing} group match${groupsMissing===1?"":"es"}`);
+  if (koMissing > 0) missing.push(`${koMissing} knockout pick${koMissing===1?"":"s"}`);
+  if (tsMissing) missing.push("top scorer");
+  if (missing.length > 0) {
     btn.disabled = true;
-    status.textContent = `Make all ${total} group picks to unlock submit (${total-done} missing).`;
+    status.innerHTML = `Still missing: <strong>${missing.join(", ")}</strong>. Fill everything to unlock submit.`;
   } else {
     btn.disabled = false;
-    status.textContent = `All group picks done! Review your knockout bracket and special picks, then submit.`;
+    status.textContent = `Everything filled — ready to submit! Once submitted you cannot change your picks anymore.`;
   }
 }
 
