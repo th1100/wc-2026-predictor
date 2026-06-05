@@ -2,11 +2,9 @@
 // World Cup 2026 Predictor — Application Logic
 // =============================================================
 
-// --- Config check ---
-if (!SUPABASE_URL || SUPABASE_URL.includes("PASTE_YOUR") || !SUPABASE_KEY || SUPABASE_KEY.includes("PASTE_YOUR")) {
-  document.getElementById("config-error").style.display = "block";
-} else {
-  document.getElementById("app-content").style.display = "block";
+// --- Config check (defer until gate passed) ---
+function configIsValid() {
+  return !!SUPABASE_URL && !SUPABASE_URL.includes("PASTE_YOUR") && !!SUPABASE_KEY && !SUPABASE_KEY.includes("PASTE_YOUR");
 }
 
 // --- Supabase client ---
@@ -796,5 +794,38 @@ async function adminRecalc() {
   setTimeout(() => m.textContent = "", 3000);
 }
 
-// --- Start ---
-if (sb) boot();
+// --- Site password gate ---
+const SITE_PASSWORD = "S426";
+
+function showAppAfterGate() {
+  document.getElementById("site-gate").style.display = "none";
+  if (!configIsValid()) {
+    document.getElementById("config-error").style.display = "block";
+    return;
+  }
+  document.getElementById("app-content").style.display = "block";
+  if (sb) boot();
+}
+
+function checkSitePw() {
+  const v = document.getElementById("site-pw").value.trim();
+  if (v === SITE_PASSWORD) {
+    localStorage.setItem("wc2026_site_pw_ok", "1");
+    showAppAfterGate();
+  } else {
+    document.getElementById("site-pw-msg").innerHTML = '<div style="color:#FFB4B4;font-size:13px">Wrong code. Try again.</div>';
+    document.getElementById("site-pw").value = "";
+    document.getElementById("site-pw").focus();
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const inp = document.getElementById("site-pw");
+  if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") checkSitePw(); });
+});
+
+if (localStorage.getItem("wc2026_site_pw_ok") === "1") {
+  showAppAfterGate();
+} else {
+  document.getElementById("site-gate").style.display = "block";
+}
