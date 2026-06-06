@@ -9,7 +9,7 @@ const SUPABASE_KEY = "sb_publishable_lMO8GHazA1Ov3IX6epC7XQ_01vYLIds";
 
 // =============================================================
 // Tournament lock time (when picks become permanent)
-// Default: June 11, 2026 at 17:00 Helsinki time (tournament start)
+// Default: June 11, 2026 at 21:00 Helsinki time (tournament start)
 // Format: 'YYYY-MM-DDTHH:MM:SS+TZ'  (TZ +03:00 = Helsinki summer)
 // =============================================================
 
