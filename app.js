@@ -48,6 +48,7 @@ let scoresByUser = {};
 let vG = "A";
 let aG = "A";
 let adminClicks = 0;
+let adminExpandedUid = null;
 
 function isTimeLocked() { return settings.force_locked === "true" || Date.now() >= LOCK_TIME; }
 function isUserLocked() { return isTimeLocked() || (CU && CU.submitted); }
@@ -418,6 +419,7 @@ async function moveTeam(g, teamName, direction) {
   await saveRanking(g, displayOrder);
   renderPickGroup();
   renderPickGTabs();
+  renderPickKO();
   updateProgress();
 }
 
@@ -514,14 +516,18 @@ function canSubmit() {
 
 function pickTab(t) {
   const map = {"groups":"sec-groups","knockout":"sec-knockout","special":"sec-special"};
-  document.querySelectorAll(".pick-tab").forEach(b => b.classList.remove("on"));
+  document.querySelectorAll("#pg-pick .pick-tab").forEach(b => b.classList.remove("on"));
   Object.values(map).forEach(id => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
-  const tabBtns = document.querySelectorAll(".pick-tab");
+  const tabBtns = document.querySelectorAll("#pg-pick .pick-tab");
   const order = ["groups","knockout","special"];
   const idx = order.indexOf(t);
   if (idx >= 0 && tabBtns[idx]) tabBtns[idx].classList.add("on");
   const el = document.getElementById(map[t]);
   if (el) el.style.display = "block";
+  // Re-render active pane so it reflects latest state
+  if (t === "groups") renderPickGroup();
+  else if (t === "knockout") renderPickKO();
+  else if (t === "special") renderPickSpecial();
 }
 
 function renderPick() {
@@ -816,14 +822,106 @@ async function loadAdminUsers() {
     const { data } = await sb.from("users").select("*").order("name");
     const users = data || [];
     document.getElementById("adm-user-count").textContent = users.length;
+    // Make sure scores are fresh for the detail view
+    computeScores();
     let h = '';
     users.forEach(u => {
       const sub = u.submitted ? ' <span style="font-size:11px;color:var(--primary)">submitted</span>' : '';
-      h += '<div class="trow"><span style="flex:1">' + u.name + sub + '</span>';
-      h += '<button onclick="deleteUser(\'' + u.id + '\',\'' + u.name.replace(/'/g, "\\'") + '\')" style="font-size:11px;padding:3px 8px;border-color:var(--danger);color:var(--danger)">Delete</button></div>';
+      const isExp = adminExpandedUid === u.id;
+      const score = scoresByUser[u.id] || {total: 0};
+      const nameEsc = u.name.replace(/'/g, "\\'");
+      h += '<div class="trow" style="border-bottom:0.5px solid var(--border)">';
+      h += '<span style="flex:1">' + u.name + sub + ' <span style="font-size:11px;color:var(--text-sec)">· ' + score.total + ' pts</span></span>';
+      h += '<button onclick="toggleViewUser(\'' + u.id + '\')" style="font-size:11px;padding:3px 8px;margin-right:6px">' + (isExp ? 'Hide ▲' : 'View ▼') + '</button>';
+      h += '<button onclick="deleteUser(\'' + u.id + '\',\'' + nameEsc + '\')" style="font-size:11px;padding:3px 8px;border-color:var(--danger);color:var(--danger)">Delete</button>';
+      h += '</div>';
+      if (isExp) h += renderUserPicksDetail(u.id);
     });
     document.getElementById("adm-user-list").innerHTML = h || '<div style="font-size:12px;color:var(--text-sec)">No players yet.</div>';
   } catch (e) { console.error("loadAdminUsers", e); }
+}
+
+function toggleViewUser(uid) {
+  adminExpandedUid = (adminExpandedUid === uid) ? null : uid;
+  loadAdminUsers();
+}
+
+function renderUserPicksDetail(uid) {
+  const picks = allUserPicks[uid] || {};
+  const koP = allUserKoPicks[uid] || {};
+  const ex = allUserExtras[uid] || {};
+  const score = scoresByUser[uid] || {groups:0, thirds:0, ko:0, scorer:0, total:0};
+
+  let h = '<div style="background:var(--bg-secondary);border:0.5px solid var(--border);border-radius:8px;padding:12px;margin:4px 0 10px;font-size:12px;line-height:1.6">';
+
+  // Group rankings
+  h += '<div style="font-weight:600;margin-bottom:6px;font-size:11px;text-transform:uppercase;color:var(--text-sec);letter-spacing:0.06em">Group rankings</div>';
+  Object.keys(GROUPS).forEach(g => {
+    const r = getRanking(picks, g);
+    const realR = getRanking(admGroupRes, g);
+    h += '<div style="margin-bottom:3px"><b>' + g + ':</b> ';
+    if (r.every(t => t !== null)) {
+      h += r.map((t, i) => {
+        const real = realR[i];
+        const matched = real && t === real;
+        const style = matched ? 'color:var(--primary);font-weight:600' : '';
+        return '<span style="' + style + '">' + (i+1) + '.' + t + '</span>';
+      }).join(' · ');
+    } else {
+      h += '<span style="color:var(--text-tert)"><i>incomplete</i></span>';
+    }
+    h += '</div>';
+  });
+
+  // Advancing thirds
+  const adv = getAdvancingThirds(picks);
+  const realAdv = new Set((admGroupRes.thirds_advancing || "").split(",").filter(s => s));
+  h += '<div style="font-weight:600;margin-top:10px;margin-bottom:4px;font-size:11px;text-transform:uppercase;color:var(--text-sec);letter-spacing:0.06em">Advancing thirds (' + adv.length + '/8)</div>';
+  if (adv.length) {
+    h += '<div>' + adv.map(t => {
+      const matched = realAdv.has(t);
+      const style = matched ? 'color:var(--primary);font-weight:600' : '';
+      return '<span style="' + style + '">' + t + '</span>';
+    }).join(', ') + '</div>';
+  } else {
+    h += '<div style="color:var(--text-tert)"><i>none</i></div>';
+  }
+
+  // Knockout picks
+  h += '<div style="font-weight:600;margin-top:10px;margin-bottom:4px;font-size:11px;text-transform:uppercase;color:var(--text-sec);letter-spacing:0.06em">Knockout picks</div>';
+  const bracket = buildBracket(picks, koP);
+  const realBracket = buildBracket(admGroupRes, admKoRes);
+  [['r32','R32'],['r16','R16'],['qf','QF'],['sf','SF']].forEach(([k, lbl]) => {
+    const realSet = new Set();
+    realBracket[k].forEach(rm => { const w = admKoRes[rm.id]; if (w) realSet.add(w); });
+    const winners = bracket[k].map(m => koP[m.id]).filter(Boolean);
+    h += '<div><b>' + lbl + ':</b> ';
+    if (winners.length) {
+      h += winners.map(w => {
+        const matched = realSet.has(w);
+        const style = matched ? 'color:var(--primary);font-weight:600' : '';
+        return '<span style="' + style + '">' + w + '</span>';
+      }).join(', ');
+    } else {
+      h += '<span style="color:var(--text-tert)"><i>none</i></span>';
+    }
+    h += '</div>';
+  });
+  const bronzeMatched = koP.bronze && koP.bronze === admKoRes.bronze;
+  const finalMatched = koP.final && koP.final === admKoRes.final;
+  h += '<div><b>Bronze:</b> <span style="' + (bronzeMatched ? 'color:var(--primary);font-weight:600' : '') + '">' + (koP.bronze || '<i style="color:var(--text-tert)">none</i>') + '</span></div>';
+  h += '<div><b>Champion:</b> <span style="' + (finalMatched ? 'color:var(--primary);font-weight:600' : '') + '">' + (koP.final || '<i style="color:var(--text-tert)">none</i>') + '</span></div>';
+
+  // Top scorer
+  const tsMatched = (ex.top_scorer || "").toLowerCase().trim() === (admExtras.top_scorer || "").toLowerCase().trim() && (ex.top_scorer || "").trim() !== "";
+  h += '<div style="margin-top:8px"><b>Top scorer:</b> <span style="' + (tsMatched ? 'color:var(--primary);font-weight:600' : '') + '">' + (ex.top_scorer || '<i style="color:var(--text-tert)">none</i>') + '</span></div>';
+
+  // Score summary
+  h += '<div style="margin-top:10px;padding-top:8px;border-top:0.5px solid var(--border);font-weight:600">Score: Groups ' + score.groups + ' · Thirds ' + score.thirds + ' · KO ' + score.ko + ' · TS ' + score.scorer + ' = <span style="font-size:14px">' + score.total + ' pts</span></div>';
+  h += '<div style="font-size:10px;color:var(--text-sec);margin-top:4px">Green = matches admin result</div>';
+
+  h += '</div>';
+  return h;
 }
 
 async function deleteUser(id, name) {
