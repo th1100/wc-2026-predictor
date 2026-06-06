@@ -13,4 +13,4 @@ const SUPABASE_KEY = "sb_publishable_lMO8GHazA1Ov3IX6epC7XQ_01vYLIds";
 // Format: 'YYYY-MM-DDTHH:MM:SS+TZ'  (TZ +03:00 = Helsinki summer)
 // =============================================================
 
-const LOCK_TIME_ISO = "2026-06-11T17:00:00+03:00";
+const LOCK_TIME_ISO = "2026-06-11T21:00:00+03:00";
