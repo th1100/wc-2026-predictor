@@ -599,10 +599,15 @@ function renderPickKO() {
   const thirds = getThirds(userPicks);
   const advancing = new Set(getAdvancingThirds(userPicks));
   if (thirds.length === 0) {
-    h += '<div class="card"><div class="lbl">Pick 8 advancing thirds</div><div style="font-size:13px;color:var(--text-sec)">Complete group rankings first to choose which third-place teams advance.</div></div>';
+    h += '<div class="card"><div class="lbl">Pick 8 advancing thirds</div><div style="font-size:13px;color:var(--text-sec);line-height:1.6">Complete your group rankings first to see the 12 third-place teams.<br><br><b>How thirds advance:</b> Of the 12 group third-place finishers, only the <b>8 best</b> reach the Round of 32. FIFA ranks the thirds by:<br>1. Points<br>2. Goal difference<br>3. Goals scored<br>4. Fair play conduct<br>5. Drawing of lots</div></div>';
   } else {
     h += '<div class="card"><div class="lbl">Pick 8 advancing third-place teams <span style="text-transform:none;font-weight:500;letter-spacing:0">(' + advancing.size + '/8 · 1 pt each)</span></div>';
-    h += '<div style="font-size:12px;color:var(--text-sec);margin-bottom:12px;line-height:1.5">Here are your predicted 3rd-place finishers from each group. Pick 8 to advance to the Round of 32.</div>';
+    h += '<div style="font-size:12px;color:var(--text-sec);margin-bottom:14px;line-height:1.6">';
+    h += '<b>How thirds advance in FIFA 2026:</b><br>';
+    h += 'Of the 12 group third-place finishers, only the <b>8 best</b> reach the Round of 32. FIFA ranks them by:<br>';
+    h += '1. Points · 2. Goal difference · 3. Goals scored · 4. Fair play · 5. Drawing of lots<br><br>';
+    h += 'Below are your predicted third-place teams (one per group). <b>Pick 8</b> you think will advance.';
+    h += '</div>';
     const sortedThirds = thirds.slice().sort((a,b) => a.group.localeCompare(b.group));
     sortedThirds.forEach(t => {
       const isSel = advancing.has(t.name);
