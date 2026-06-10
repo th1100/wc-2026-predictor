@@ -164,10 +164,10 @@ async function loadAllForLeaderboard() {
   if (!sb) return;
   try {
     const [users, gp, kp, ex] = await Promise.all([
-      sb.from("users").select("id,name,submitted"),
-      sb.from("group_picks").select("*"),
-      sb.from("ko_picks").select("*"),
-      sb.from("extras").select("*")
+      sb.from("users").select("id,name,submitted").limit(100000),
+      sb.from("group_picks").select("*").limit(100000),
+      sb.from("ko_picks").select("*").limit(100000),
+      sb.from("extras").select("*").limit(100000)
     ]);
     allUsers = users.data || [];
     allUserPicks = {}; (gp.data || []).forEach(r => {
