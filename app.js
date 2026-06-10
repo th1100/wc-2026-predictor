@@ -160,25 +160,39 @@ async function loadUserPicks() {
   } catch (e) { console.error("loadUserPicks", e); }
 }
 
+async function fetchAllChunked(table, selectStr) {
+  const all = [];
+  let offset = 0;
+  const chunk = 1000;
+  while (true) {
+    const { data, error } = await sb.from(table).select(selectStr).range(offset, offset + chunk - 1);
+    if (error || !data) break;
+    all.push(...data);
+    if (data.length < chunk) break;
+    offset += chunk;
+  }
+  return all;
+}
+
 async function loadAllForLeaderboard() {
   if (!sb) return;
   try {
     const [users, gp, kp, ex] = await Promise.all([
-      sb.from("users").select("id,name,submitted").limit(100000),
-      sb.from("group_picks").select("*").limit(100000),
-      sb.from("ko_picks").select("*").limit(100000),
-      sb.from("extras").select("*").limit(100000)
+      fetchAllChunked("users", "id,name,submitted"),
+      fetchAllChunked("group_picks", "*"),
+      fetchAllChunked("ko_picks", "*"),
+      fetchAllChunked("extras", "*")
     ]);
-    allUsers = users.data || [];
-    allUserPicks = {}; (gp.data || []).forEach(r => {
+    allUsers = users;
+    allUserPicks = {}; gp.forEach(r => {
       if (!allUserPicks[r.user_id]) allUserPicks[r.user_id] = {};
       allUserPicks[r.user_id][r.match_id] = r.pick;
     });
-    allUserKoPicks = {}; (kp.data || []).forEach(r => {
+    allUserKoPicks = {}; kp.forEach(r => {
       if (!allUserKoPicks[r.user_id]) allUserKoPicks[r.user_id] = {};
       allUserKoPicks[r.user_id][r.match_id] = r.pick;
     });
-    allUserExtras = {}; (ex.data || []).forEach(r => {
+    allUserExtras = {}; ex.forEach(r => {
       if (!allUserExtras[r.user_id]) allUserExtras[r.user_id] = {};
       allUserExtras[r.user_id][r.key] = r.value;
     });
