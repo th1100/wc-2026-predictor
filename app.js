@@ -350,8 +350,8 @@ function nav(p) {
   const navBtns = document.querySelectorAll("#main-nav .ntab");
   if (navBtns[tabs[p]]) navBtns[tabs[p]].classList.add("on");
   if (p === "pick") renderPick();
-  if (p === "board") { computeScores(); renderBoard(); }
-  if (p === "admin") renderAdm();
+  if (p === "board") loadAllForLeaderboard().then(() => { computeScores(); renderBoard(); });
+  if (p === "admin") loadAllForLeaderboard().then(() => renderAdm());
 }
 
 function showAdmin() {
